@@ -52,3 +52,10 @@ body {
   to   { transform: translateY(0); opacity: 1; }
 }
 .toast { animation: slide-up 0.2s ease-out; }
+
+/* Admin form inputs (v0.12) */
+@layer components {
+  .input {
+    @apply w-full px-3 py-2 rounded-lg border border-ink-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 outline-none text-sm transition disabled:opacity-50;
+  }
+}

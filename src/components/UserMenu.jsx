@@ -5,7 +5,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useT } from '../hooks/useLanguage'
 
-export default function UserMenu({ user, onSignOut, onShowBilling, hideBilling = false }) {
+export default function UserMenu({ user, onSignOut, onShowBilling, hideBilling = false, isAdmin = false }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const menuRef = useRef(null)
@@ -78,6 +78,21 @@ export default function UserMenu({ user, onSignOut, onShowBilling, hideBilling =
             <span>{t('userMenu.upgrade')}</span>
             <span className="ml-auto text-[10px] text-brand-600 font-semibold">{t('common.pro')}</span>
           </button>
+          )}
+
+          {/* v0.12: Admin link (chi hien khi user_roles.is_admin = true) */}
+          {isAdmin && (
+          <a
+            href="/admin"
+            onClick={() => setOpen(false)}
+            className="w-full text-left px-3 py-2.5 text-sm hover:bg-ink-50 transition flex items-center gap-2 text-ink-700 border-b border-ink-100"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span>Admin panel</span>
+            <span className="ml-auto text-[10px] text-amber-600 font-semibold">ADMIN</span>
+          </a>
           )}
 
           <button

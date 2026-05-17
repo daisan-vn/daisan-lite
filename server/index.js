@@ -54,6 +54,23 @@ async function requireAuth(req, res, next) {
   }
 }
 
+// ─── v0.12: Admin check ──────────────────────────────────────────────────
+// Tra ve true neu user_id co row user_roles voi is_admin = true
+async function isAdminUser(userId) {
+  if (!userId) return false
+  const { data } = await supabase
+    .from('user_roles').select('is_admin')
+    .eq('user_id', userId).maybeSingle()
+  return !!data?.is_admin
+}
+
+// Middleware: yeu cau req.user.id la admin (phai chay sau requireAuth)
+async function requireAdmin(req, res, next) {
+  const ok = await isAdminUser(req.user?.id)
+  if (!ok) return res.status(403).json({ error: 'Khong co quyen admin' })
+  next()
+}
+
 // ─── v0.10: Role detection — owner vs client ─────────────────────────────
 // Tra ve 'owner' | 'client' | null cho user voi project nay
 async function getUserRole(userId, projectId) {
@@ -917,6 +934,77 @@ app.delete('/api/projects/:id/client', requireAuth, async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+// ════════════════════════════════════════════════════════════════════════
+//  ADMIN ENDPOINTS (v0.12) — yeu cau user_roles.is_admin = true
+// ════════════════════════════════════════════════════════════════════════
+
+// GET /api/admin/check — frontend goi de biet user co phai admin khong
+app.get('/api/admin/check', requireAuth, async (req, res) => {
+  res.json({ is_admin: await isAdminUser(req.user.id) })
+})
+
+// GET /api/admin/templates — list tat ca template (kem metadata day du)
+app.get('/api/admin/templates', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('templates')
+      .select('id, slug, name, description, category, industry_label, emoji, color_from, color_to, navigation, site_name, default_prompt, uses_count, is_featured, display_order, pages, created_at, updated_at')
+      .order('display_order', { ascending: true })
+    if (error) throw error
+    // Tinh page_count tu pages jsonb (khong tra ve pages content de keep payload nho)
+    const slim = (data || []).map(t => ({
+      ...t,
+      page_count: t.pages ? Object.keys(t.pages).length : 0,
+      pages: undefined   // strip content khoi list
+    }))
+    res.json({ templates: slim })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/admin/templates/:id — sua metadata cua 1 template
+// Allowlist field de chong user gui pages/uses_count gia
+app.patch('/api/admin/templates/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const ALLOWED = ['name','description','category','industry_label','emoji',
+      'color_from','color_to','default_prompt','is_featured','display_order','site_name']
+    const updates = {}
+    for (const f of ALLOWED) {
+      if (f in req.body) updates[f] = req.body[f]
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Khong co field hop le de cap nhat' })
+    }
+    // Sanitize: trim strings, clamp display_order
+    if ('name' in updates) updates.name = String(updates.name).trim().slice(0, 100)
+    if ('description' in updates) updates.description = String(updates.description).slice(0, 500)
+    if ('display_order' in updates) updates.display_order = Math.max(0, Math.min(9999, parseInt(updates.display_order) || 100))
+    if ('is_featured' in updates) updates.is_featured = !!updates.is_featured
+
+    const { data, error } = await supabase
+      .from('templates').update(updates).eq('id', req.params.id).select().single()
+    if (error) throw error
+    res.json({ template: data })
+  } catch (err) {
+    console.error('[admin-template-patch]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/admin/templates/:id — xoa hoan toan
+app.delete('/api/admin/templates/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('templates').delete().eq('id', req.params.id)
+    if (error) throw error
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 
 // ─── TEMPLATES endpoints (v0.6) ───────────────────────────────────────
 // GET /api/templates — list all templates

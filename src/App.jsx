@@ -21,7 +21,9 @@ import PaymentReturn from './components/PaymentReturn'
 import ClientInviteAccept from './components/ClientInviteAccept'
 import InviteClientModal from './components/InviteClientModal'
 import LanguageToggle from './components/LanguageToggle'
+import AdminPanel from './components/AdminPanel'
 import { useAuth } from './hooks/useAuth'
+import { useAdmin } from './hooks/useAdmin'
 import { useT } from './hooks/useLanguage'
 import { apiGet, apiDelete, apiPatch, apiPost, apiPostStream } from './lib/api'
 
@@ -44,7 +46,49 @@ export default function App() {
   if (authLoading) return <SplashScreen />
   if (!user) return <Auth />
 
+  // v0.12: Admin panel — server tu reject 403 neu khong phai admin
+  if (path === '/admin') {
+    return <AdminRoute user={user} onSignOut={signOut} />
+  }
+
   return <MainApp user={user} onSignOut={signOut} />
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  ADMIN ROUTE (v0.12)
+// ════════════════════════════════════════════════════════════════════════
+function AdminRoute({ user }) {
+  const { isAdmin, loading } = useAdmin(user)
+  const [toast, setToast] = useState(null)
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }, [])
+
+  if (loading) return <SplashScreen />
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-ink-50 p-4">
+        <div className="bg-white rounded-2xl shadow-card max-w-md w-full p-6 text-center">
+          <div className="text-4xl mb-2">🔒</div>
+          <h1 className="text-lg font-bold text-ink-900 mb-1">Khong co quyen admin</h1>
+          <p className="text-sm text-ink-600 mb-4">
+            Tai khoan <strong>{user.email}</strong> chua duoc cap quyen admin.
+            Lien he chu DaisanAI hoac xem <code className="bg-ink-100 px-1 rounded">SETUP_ADMIN.md</code> de promote.
+          </p>
+          <a href="/" className="inline-block px-4 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold">
+            Quay ve trang chu
+          </a>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <>
+      <AdminPanel onBack={() => window.location.href = '/'} showToast={showToast} />
+      {toast && <Toast message={toast.message} type={toast.type} />}
+    </>
+  )
 }
 
 function SplashScreen() {
@@ -65,6 +109,7 @@ function SplashScreen() {
 
 function MainApp({ user, onSignOut }) {
   const t = useT()
+  const { isAdmin } = useAdmin(user)
   const [current, setCurrent] = useState(null)
   const [streamText, setStreamText] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -321,6 +366,7 @@ function MainApp({ user, onSignOut }) {
             onSignOut={onSignOut}
             onShowBilling={isClient ? null : () => setView('billing')}
             hideBilling={isClient}
+            isAdmin={isAdmin}
           />
         </div>
       </header>
