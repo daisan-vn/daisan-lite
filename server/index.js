@@ -13,6 +13,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import crypto from 'crypto'
+import dns from 'dns/promises'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import * as vnpay from './lib/vnpay.js'
@@ -131,12 +132,15 @@ async function generateUniqueSlug(name, attempts = 0) {
 function injectNavScript(html) {
   if (!html) return html
   const script = `
-<script>
+<script data-daisan-inject="true">
 (function() {
   var inIframe = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
-  if (!inIframe) return;   // top-level browsing → khong intercept, let browser go
+  if (!inIframe) return;
 
+  // ─── Nav script (intercept link clicks) ─────────────────────────────
   document.addEventListener('click', function(e) {
+    // Bo qua khi dang edit
+    if (document.body.classList.contains('daisan-edit-mode')) return;
     var link = e.target.closest('a[href]');
     if (!link) return;
     var href = link.getAttribute('href');
@@ -150,8 +154,118 @@ function injectNavScript(html) {
     }
   });
   document.addEventListener('submit', function(e) {
+    if (document.body.classList.contains('daisan-edit-mode')) return;
     e.preventDefault();
     window.parent.postMessage({ type: 'daisan:formSubmit' }, '*');
+  });
+
+  // ─── Edit mode script (v0.9) ────────────────────────────────────────
+  function isEditableTextEl(el) {
+    var tag = el.tagName.toLowerCase();
+    var ok = ['h1','h2','h3','h4','h5','h6','p','span','a','li','button','label','td','th','blockquote','figcaption'];
+    if (ok.indexOf(tag) === -1) return false;
+    if (!el.textContent || !el.textContent.trim()) return false;
+    if (el.closest('head, script, style, noscript')) return false;
+    // Skip if has block-level children
+    for (var i = 0; i < el.children.length; i++) {
+      var ct = el.children[i].tagName;
+      if (['SPAN','EM','STRONG','I','B','U','BR','SMALL','MARK','SUB','SUP','CODE'].indexOf(ct) === -1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  var editStyleId = 'daisan-edit-style';
+  function injectEditStyles() {
+    if (document.getElementById(editStyleId)) return;
+    var s = document.createElement('style');
+    s.id = editStyleId;
+    s.setAttribute('data-daisan-inject', 'true');
+    s.textContent = '' +
+      '.daisan-edit-mode [data-daisan-editable]:hover {' +
+      '  outline: 2px dashed #3b5cf5 !important;' +
+      '  outline-offset: 2px !important;' +
+      '  cursor: text !important;' +
+      '  background: rgba(59,92,245,0.05) !important;' +
+      '}' +
+      '.daisan-edit-mode [data-daisan-editable]:focus {' +
+      '  outline: 2px solid #3b5cf5 !important;' +
+      '  outline-offset: 2px !important;' +
+      '  background: rgba(59,92,245,0.08) !important;' +
+      '}' +
+      '.daisan-edit-mode a { pointer-events: auto !important; }' +
+      '.daisan-edit-mode * { user-select: text !important; }';
+    document.head.appendChild(s);
+  }
+
+  function enableEditMode() {
+    injectEditStyles();
+    document.body.classList.add('daisan-edit-mode');
+    var els = document.querySelectorAll('h1,h2,h3,h4,h5,h6,p,span,a,li,button,label,td,th,blockquote,figcaption');
+    els.forEach(function(el) {
+      if (!isEditableTextEl(el)) return;
+      el.setAttribute('contenteditable', 'true');
+      el.setAttribute('data-daisan-editable', 'true');
+      if (!el.hasAttribute('data-daisan-original')) {
+        el.setAttribute('data-daisan-original', el.textContent);
+      }
+      el.addEventListener('input', notifyDirty, { once: false });
+      // Prevent Enter from adding <div>
+      el.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          el.blur();
+        }
+      });
+    });
+    window.parent.postMessage({ type: 'daisan:editModeReady', editableCount: document.querySelectorAll('[data-daisan-editable]').length }, '*');
+  }
+
+  function disableEditMode() {
+    document.body.classList.remove('daisan-edit-mode');
+    var els = document.querySelectorAll('[data-daisan-editable]');
+    els.forEach(function(el) {
+      el.removeAttribute('contenteditable');
+      el.removeAttribute('data-daisan-editable');
+      el.removeAttribute('data-daisan-original');
+    });
+  }
+
+  var dirtyTimer = null;
+  function notifyDirty() {
+    if (dirtyTimer) return;
+    dirtyTimer = setTimeout(function() {
+      dirtyTimer = null;
+      window.parent.postMessage({ type: 'daisan:dirty' }, '*');
+    }, 100);
+  }
+
+  function getCleanHtml() {
+    // Clone documentElement, strip injected stuff
+    var root = document.documentElement.cloneNode(true);
+    var injects = root.querySelectorAll('[data-daisan-inject]');
+    for (var i = 0; i < injects.length; i++) injects[i].remove();
+    var editables = root.querySelectorAll('[data-daisan-editable]');
+    for (var j = 0; j < editables.length; j++) {
+      editables[j].removeAttribute('contenteditable');
+      editables[j].removeAttribute('data-daisan-editable');
+      editables[j].removeAttribute('data-daisan-original');
+    }
+    return '<!DOCTYPE html>\\n' + root.outerHTML;
+  }
+
+  window.addEventListener('message', function(e) {
+    var d = e.data || {};
+    if (d.type === 'daisan:setEditMode') {
+      if (d.enabled) enableEditMode(); else disableEditMode();
+    }
+    if (d.type === 'daisan:requestCleanHtml') {
+      window.parent.postMessage({
+        type: 'daisan:cleanHtml',
+        html: getCleanHtml()
+      }, '*');
+    }
   });
 })();
 </script>
@@ -270,7 +384,7 @@ QUY TAC:
 // ═══════════════════════════════════════════════════════════════════════
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, version: '0.7.1', time: new Date().toISOString() })
+  res.json({ ok: true, version: '0.9.0', time: new Date().toISOString() })
 })
 
 // ─── GET /site/:slug/ va /site/:slug/:filename ────────────────────────
@@ -331,6 +445,85 @@ async function servePublicSite(req, res) {
 app.get('/site/:slug', servePublicSite)
 app.get('/site/:slug/', servePublicSite)
 app.get('/site/:slug/:filename', servePublicSite)
+
+
+// ─── CUSTOM DOMAIN MIDDLEWARE (v0.8) ──────────────────────────────────
+// Khi request den voi Host header la custom domain → serve site cua project do
+// VD: Host: cuahangcuaban.com → tim project co custom_domain = "cuahangcuaban.com"
+// Phai chay TRUOC tat ca cac route khac
+async function customDomainMiddleware(req, res, next) {
+  let host = (req.headers.host || '').toLowerCase().split(':')[0]
+
+  // Bo qua localhost, IP, va daisan domain chinh
+  if (!host
+      || host === 'localhost'
+      || host === '127.0.0.1'
+      || host.match(/^\d+\.\d+\.\d+\.\d+$/)
+      || host.endsWith('.daisan.vn')
+      || host === 'daisan.vn') {
+    return next()
+  }
+
+  // Bo qua API requests
+  if (req.path.startsWith('/api/') || req.path.startsWith('/site/')) {
+    return next()
+  }
+
+  try {
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id, user_id, pages, site_name, is_published, view_count, custom_domain_verified')
+      .eq('custom_domain', host)
+      .eq('is_published', true)
+      .maybeSingle()
+
+    if (!project || !project.custom_domain_verified) {
+      return next()    // khong match → let SPA handle (or 404)
+    }
+
+    // Tim file path tu URL
+    let filename = req.path === '/' ? 'index.html' : req.path.slice(1)
+    if (!filename.endsWith('.html')) filename = filename + '.html'
+    // Loai bo trailing slash neu co
+    if (filename.endsWith('/')) filename = filename.slice(0, -1) || 'index.html'
+
+    let html = project.pages?.[filename]
+    if (!html) {
+      // Fallback ve index.html cho SPA-like routing
+      html = project.pages?.['index.html']
+    }
+    if (!html) {
+      return res.status(404).type('html').send(notFoundPage(host, filename))
+    }
+
+    // Inject badge cho free tier
+    const ownerSub = await getUserSubscription(supabase, project.user_id)
+    const ownerPlan = getPlan(ownerSub.plan_id)
+    if (ownerPlan.has_watermark) {
+      html = injectFreeBadge(html)
+    }
+
+    // Track view
+    if (filename === 'index.html') {
+      supabase
+        .from('projects')
+        .update({ view_count: (project.view_count || 0) + 1 })
+        .eq('id', project.id)
+        .then(() => {}).catch(() => {})
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('X-Powered-By', 'DaisanAI')
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+    return res.send(html)
+  } catch (err) {
+    console.error('[custom-domain]', err)
+    return next()
+  }
+}
+
+// Apply middleware TRUOC cac routes API thong thuong
+app.use(customDomainMiddleware)
 
 function notFoundPage(slug, filename) {
   return `<!DOCTYPE html>
@@ -422,6 +615,61 @@ app.patch('/api/projects/:id', requireAuth, async (req, res) => {
     if (error) throw error
     res.json(data)
   } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── POST /api/projects/:id/save-edits (v0.9) — inline text edits ─────
+// User edit text trong iframe → frontend gui ve HTML moi cho 1 page
+// Khong dung AI, khong ton quota → FREE cho moi tier
+app.post('/api/projects/:id/save-edits', requireAuth, async (req, res) => {
+  try {
+    const { filename, html } = req.body
+    if (!filename || typeof filename !== 'string') {
+      return res.status(400).json({ error: 'Thieu filename' })
+    }
+    if (!filename.endsWith('.html')) {
+      return res.status(400).json({ error: 'Filename phai .html' })
+    }
+    if (!html || typeof html !== 'string' || html.length < 50) {
+      return res.status(400).json({ error: 'HTML khong hop le' })
+    }
+    if (html.length > 500000) {
+      return res.status(400).json({ error: 'HTML qua lon (> 500KB)' })
+    }
+
+    // Load project, check ownership
+    const { data: project, error: lErr } = await supabase
+      .from('projects')
+      .select('id, pages')
+      .eq('id', req.params.id).eq('user_id', req.user.id).single()
+
+    if (lErr || !project) return res.status(404).json({ error: 'Project khong ton tai' })
+
+    const pages = { ...(project.pages || {}) }
+    if (!pages[filename]) {
+      return res.status(404).json({ error: `Page "${filename}" khong ton tai trong project` })
+    }
+
+    // Re-inject nav script (vi frontend gui HTML clean, server tu inject lai)
+    pages[filename] = injectNavScript(html)
+
+    // Update DB
+    const updates = { pages }
+    // Neu day la index → cap nhat truong html chinh (dung cho backward compat)
+    if (filename === 'index.html') {
+      updates.html = pages[filename]
+    }
+
+    const { data: updated, error: uErr } = await supabase
+      .from('projects').update(updates)
+      .eq('id', req.params.id).eq('user_id', req.user.id).select().single()
+
+    if (uErr) throw uErr
+
+    res.json({ success: true, project: updated })
+  } catch (err) {
+    console.error('[save-edits]', err)
     res.status(500).json({ error: err.message })
   }
 })
@@ -665,6 +913,192 @@ app.get('/api/billing/payments', requireAuth, async (req, res) => {
   }
 })
 
+// ═══════════════════════════════════════════════════════════════════════
+//  CUSTOM DOMAIN endpoints (v0.8) — Pro+ only
+// ═══════════════════════════════════════════════════════════════════════
+
+// Helper: validate domain format
+function isValidDomain(domain) {
+  if (!domain) return false
+  if (domain.length < 4 || domain.length > 253) return false
+  if (domain.includes(' ') || domain.includes('//')) return false
+  // Basic regex (chap nhan apex va subdomain)
+  return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(domain)
+}
+
+// POST /api/projects/:id/domain — them domain cho project
+app.post('/api/projects/:id/domain', requireAuth, async (req, res) => {
+  try {
+    const { domain } = req.body
+    const cleanDomain = (domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/$/, '')
+
+    if (!isValidDomain(cleanDomain)) {
+      return res.status(400).json({ error: 'Domain khong hop le (vd dung: cuahangcuaban.com)' })
+    }
+
+    // Check user's plan
+    const sub = await getUserSubscription(supabase, req.user.id)
+    const plan = getPlan(sub.plan_id)
+    if (!plan.has_custom_domain) {
+      return res.status(403).json({
+        error: `Custom domain la tinh nang Pro+. Goi ${plan.name} khong ho tro.`,
+        reason: 'plan_required',
+        requiredPlan: 'pro'
+      })
+    }
+
+    // Check project belongs to user
+    const { data: project, error: pErr } = await supabase
+      .from('projects')
+      .select('id, custom_domain')
+      .eq('id', req.params.id).eq('user_id', req.user.id).single()
+    if (pErr || !project) return res.status(404).json({ error: 'Project khong ton tai' })
+
+    // Check domain not used by another project
+    const { data: existing } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('custom_domain', cleanDomain)
+      .neq('id', req.params.id)
+      .maybeSingle()
+    if (existing) {
+      return res.status(409).json({ error: 'Domain nay da duoc su dung boi project khac' })
+    }
+
+    // Tao verification token
+    const token = 'daisan-verify=' + crypto.randomBytes(16).toString('hex')
+
+    // Update DB
+    const { data: updated, error: uErr } = await supabase
+      .from('projects')
+      .update({
+        custom_domain: cleanDomain,
+        custom_domain_verified: false,
+        custom_domain_token: token,
+        custom_domain_added_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id).eq('user_id', req.user.id).select().single()
+
+    if (uErr) throw uErr
+
+    // Tra ve DNS instructions
+    const serverIp = process.env.SERVER_PUBLIC_IP || 'YOUR_SERVER_IP'
+    res.json({
+      success: true,
+      domain: cleanDomain,
+      verified: false,
+      token,
+      dnsInstructions: {
+        a_record: {
+          type: 'A',
+          host: '@',
+          value: serverIp,
+          note: `Tro domain ve server cua DaisanAI`
+        },
+        txt_record: {
+          type: 'TXT',
+          host: `_daisan-verify.${cleanDomain}`,
+          value: token,
+          note: 'Token de verify ban so huu domain'
+        },
+        www_cname: {
+          type: 'CNAME',
+          host: 'www',
+          value: cleanDomain + '.',
+          note: '(tuy chon) Redirect www → apex'
+        }
+      },
+      project: updated
+    })
+  } catch (err) {
+    console.error('[domain-add]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/projects/:id/domain/verify — check DNS roi update verified
+app.post('/api/projects/:id/domain/verify', requireAuth, async (req, res) => {
+  try {
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id, custom_domain, custom_domain_token, custom_domain_verified')
+      .eq('id', req.params.id).eq('user_id', req.user.id).single()
+
+    if (!project) return res.status(404).json({ error: 'Project khong ton tai' })
+    if (!project.custom_domain) return res.status(400).json({ error: 'Project chua co domain' })
+
+    // Lookup TXT record
+    let txtRecords
+    try {
+      txtRecords = await dns.resolveTxt(`_daisan-verify.${project.custom_domain}`)
+    } catch (dnsErr) {
+      return res.json({
+        success: false,
+        verified: false,
+        error: `Khong tim thay TXT record. Hay them: _daisan-verify.${project.custom_domain} → "${project.custom_domain_token}"`,
+        dns_error: dnsErr.code
+      })
+    }
+
+    // Flatten cac record (TXT co the multi-line)
+    const flatRecords = txtRecords.map(arr => arr.join('')).map(s => s.trim())
+
+    // So sanh voi token mong doi (chap nhan voi hoac khong co quotes)
+    const expectedValue = project.custom_domain_token
+    const expectedValueRaw = expectedValue.replace(/^daisan-verify=/, '')
+    const matched = flatRecords.some(r =>
+      r === expectedValue ||
+      r === `daisan-verify=${expectedValueRaw}` ||
+      r === expectedValueRaw
+    )
+
+    if (!matched) {
+      return res.json({
+        success: false,
+        verified: false,
+        error: 'TXT record khong khop. DNS co the chua propagate (doi 5-30 phut).',
+        found_records: flatRecords,
+        expected: expectedValue
+      })
+    }
+
+    // Verified! Update DB
+    await supabase
+      .from('projects')
+      .update({ custom_domain_verified: true })
+      .eq('id', req.params.id).eq('user_id', req.user.id)
+
+    res.json({
+      success: true,
+      verified: true,
+      message: `✓ Domain ${project.custom_domain} da verify thanh cong!`,
+      url: `https://${project.custom_domain}`
+    })
+  } catch (err) {
+    console.error('[domain-verify]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/projects/:id/domain — xoa domain
+app.delete('/api/projects/:id/domain', requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('projects')
+      .update({
+        custom_domain: null,
+        custom_domain_verified: false,
+        custom_domain_token: null,
+        custom_domain_added_at: null
+      })
+      .eq('id', req.params.id).eq('user_id', req.user.id)
+    if (error) throw error
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // ─── PUBLISH endpoints ────────────────────────────────────────────────
 // POST /api/projects/:id/publish — bat publish, tao slug neu chua co
 app.post('/api/projects/:id/publish', requireAuth, async (req, res) => {
@@ -884,11 +1318,13 @@ const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log('')
   console.log('  ┌──────────────────────────────────────────────┐')
-  console.log('  │   DaisanAI Lite v0.7 — Server san sang!      │')
+  console.log('  │   DaisanAI Lite v0.9 — Server san sang!      │')
   console.log(`  │   API:    http://localhost:${PORT}              │`)
   console.log(`  │   Web:    http://localhost:5173              │`)
   console.log(`  │   Sites:  http://localhost:5173/site/<slug>  │`)
   console.log(`  │   VNPay:  ${vnpay.isVnpayConfigured() ? 'configured ✓' : 'MOCK mode (chua config)'.padEnd(32)}│`)
+  console.log(`  │   Domain: Pro+ feature san sang              │`)
+  console.log(`  │   Edit:   Inline text edit ENABLED ✨        │`)
   console.log('  └──────────────────────────────────────────────┘')
   console.log('')
   if (!process.env.ANTHROPIC_API_KEY?.startsWith('sk-')) {

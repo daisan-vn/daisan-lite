@@ -1,22 +1,27 @@
 // ========================================================================
-//  Preview v0.6 — Multi-page + Publish + Templates
-// ========================================================================
-//  Tinh nang moi:
-//    + TemplatesGrid trong empty state (browse + clone)
+//  Preview v0.9 — Multi-page + Publish + Templates + Inline Edit
 // ========================================================================
 
 import { useState, useEffect, useRef } from 'react'
 import TemplatesGrid from './TemplatesGrid'
+import DomainSettings from './DomainSettings'
+import { apiPost } from '../lib/api'
 
 export default function Preview({
   current, streamText, isStreaming, streamMode,
   onPublish, onUnpublish, publishLoading,
-  onTemplateCloned, showToast
+  onTemplateCloned, showToast, onProjectUpdate
 }) {
   const [mode, setMode] = useState('preview')
   const [viewport, setViewport] = useState('desktop')
   const [currentPath, setCurrentPath] = useState('index.html')
   const [publishOpen, setPublishOpen] = useState(false)
+  const [showDomain, setShowDomain] = useState(false)
+  // v0.9: Edit mode state
+  const [editMode, setEditMode] = useState(false)
+  const [editDirty, setEditDirty] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const iframeRef = useRef(null)
   const codeRef = useRef(null)
   const publishRef = useRef(null)
 
@@ -37,16 +42,91 @@ export default function Preview({
     }
   }, [streamText, isStreaming])
 
+  // Exit edit mode khi doi project / page / streaming
+  useEffect(() => {
+    if (editMode) {
+      setEditMode(false)
+      setEditDirty(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id, currentPath, isStreaming])
+
   useEffect(() => {
     function handleMessage(e) {
-      if (e.data?.type === 'daisan:navigate') {
-        const path = e.data.path
+      const d = e.data || {}
+      if (d.type === 'daisan:navigate') {
+        const path = d.path
         if (current?.pages?.[path]) setCurrentPath(path)
+      }
+      // v0.9 edit mode events
+      if (d.type === 'daisan:editModeReady') {
+        showToast?.(`✏️ Edit mode bat: ${d.editableCount} text co the sua`, 'info')
+      }
+      if (d.type === 'daisan:dirty') {
+        setEditDirty(true)
+      }
+      if (d.type === 'daisan:cleanHtml') {
+        saveCleanHtmlToServer(d.html)
       }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [current])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current, currentPath])
+
+  // v0.9: Toggle edit mode → send message to iframe
+  function toggleEditMode() {
+    if (!iframeRef.current?.contentWindow) return
+    const next = !editMode
+    iframeRef.current.contentWindow.postMessage({
+      type: 'daisan:setEditMode',
+      enabled: next
+    }, '*')
+    setEditMode(next)
+    if (!next) setEditDirty(false)
+  }
+
+  // v0.9: User click "Save edits" → request HTML from iframe
+  function saveEdits() {
+    if (!iframeRef.current?.contentWindow) return
+    setEditSaving(true)
+    iframeRef.current.contentWindow.postMessage({
+      type: 'daisan:requestCleanHtml'
+    }, '*')
+    // Iframe se reply voi 'daisan:cleanHtml' → handled in message listener
+  }
+
+  // v0.9: Cancel edits → reload iframe (discard changes)
+  function cancelEdits() {
+    if (!confirm('Huy thay doi? Cac sua doi se mat.')) return
+    setEditMode(false)
+    setEditDirty(false)
+    // Reload iframe by forcing re-render
+    if (iframeRef.current) {
+      const src = iframeRef.current.srcdoc
+      iframeRef.current.srcdoc = ''
+      setTimeout(() => {
+        if (iframeRef.current) iframeRef.current.srcdoc = src
+      }, 10)
+    }
+  }
+
+  async function saveCleanHtmlToServer(html) {
+    try {
+      await apiPost(`/api/projects/${current.id}/save-edits`, {
+        filename: currentPath,
+        html
+      })
+      showToast?.('✓ Da luu thay doi', 'success')
+      setEditMode(false)
+      setEditDirty(false)
+      onProjectUpdate?.()
+    } catch (err) {
+      showToast?.('Loi luu: ' + err.message, 'error')
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   // Close publish popover khi click ngoai
   useEffect(() => {
@@ -173,16 +253,43 @@ export default function Preview({
 
         {current && !isStreaming && (
           <div className="flex gap-1 items-center">
-            <button onClick={openCurrentPageInNewTab} title="Mo trong tab moi"
-              className="px-2 py-1.5 text-[11px] font-medium rounded-lg text-ink-600 hover:bg-ink-100 transition flex items-center gap-1.5">
+            {/* v0.9: Edit toggle */}
+            {!editMode ? (
+              <button onClick={toggleEditMode} title="Sua text truc tiep (mien phi)"
+                className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-ink-700 hover:bg-brand-50 hover:text-brand-700 transition flex items-center gap-1.5 border border-ink-200">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Sua text
+              </button>
+            ) : (
+              <>
+                <div className="flex items-center gap-1 px-2 py-1 bg-brand-50 border border-brand-300 rounded-lg text-[11px] text-brand-700 font-semibold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse"></span>
+                  Edit mode {editDirty && '(co thay doi)'}
+                </div>
+                <button onClick={saveEdits} disabled={editSaving || !editDirty}
+                  className="px-2.5 py-1.5 text-[11px] font-semibold rounded-lg bg-green-500 hover:bg-green-600 text-white disabled:bg-ink-300 transition shadow-soft">
+                  {editSaving ? 'Dang luu...' : '✓ Luu'}
+                </button>
+                <button onClick={cancelEdits} disabled={editSaving}
+                  className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-red-600 hover:bg-red-50 transition">
+                  Huy
+                </button>
+              </>
+            )}
+
+            <button onClick={openCurrentPageInNewTab} title="Mo trong tab moi" disabled={editMode}
+              className="px-2 py-1.5 text-[11px] font-medium rounded-lg text-ink-600 hover:bg-ink-100 transition flex items-center gap-1.5 disabled:opacity-40">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                 <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
               </svg>
               Mo
             </button>
-            <button onClick={downloadCurrentPage} title={`Tai ${currentPath}`}
-              className="px-2 py-1.5 text-[11px] font-medium rounded-lg text-ink-600 hover:bg-ink-100 transition flex items-center gap-1.5">
+            <button onClick={downloadCurrentPage} title={`Tai ${currentPath}`} disabled={editMode}
+              className="px-2 py-1.5 text-[11px] font-medium rounded-lg text-ink-600 hover:bg-ink-100 transition flex items-center gap-1.5 disabled:opacity-40">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                 <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -194,7 +301,7 @@ export default function Preview({
             <div className="relative" ref={publishRef}>
               <button
                 onClick={handlePublishClick}
-                disabled={publishLoading}
+                disabled={publishLoading || editMode}
                 className={`px-3 py-1.5 text-[11px] font-semibold rounded-lg transition flex items-center gap-1.5 shadow-soft ${
                   isPublished
                     ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
@@ -265,6 +372,44 @@ export default function Preview({
                     </a>
                   </div>
 
+                  {/* v0.8: Custom domain section */}
+                  <div className="border-t border-ink-100 p-3">
+                    {current.custom_domain && current.custom_domain_verified ? (
+                      <div className="space-y-2">
+                        <div className="text-[10px] font-semibold text-green-700 uppercase tracking-wider flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                          Custom domain active
+                        </div>
+                        <div className="flex items-center gap-1 px-2 py-1.5 bg-green-50 border border-green-200 rounded-lg">
+                          <code className="text-[11px] text-green-900 flex-1 truncate font-mono">
+                            https://{current.custom_domain}
+                          </code>
+                          <button
+                            onClick={() => { setPublishOpen(false); setShowDomain(true) }}
+                            className="text-[10px] text-brand-600 hover:text-brand-700 font-semibold"
+                          >
+                            Manage
+                          </button>
+                        </div>
+                      </div>
+                    ) : current.custom_domain ? (
+                      <button
+                        onClick={() => { setPublishOpen(false); setShowDomain(true) }}
+                        className="w-full text-left text-[11px] text-amber-700 hover:bg-amber-50 px-2 py-1.5 rounded transition flex items-center gap-1.5"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                        {current.custom_domain} — chua verify
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { setPublishOpen(false); setShowDomain(true) }}
+                        className="w-full text-left text-[11px] text-ink-600 hover:bg-ink-50 px-2 py-1.5 rounded transition flex items-center gap-1.5"
+                      >
+                        🌍  Gan custom domain (Pro+)
+                      </button>
+                    )}
+                  </div>
+
                   <div className="border-t border-ink-100 px-3 py-2">
                     <button
                       onClick={() => { onUnpublish?.(current.id); setPublishOpen(false) }}
@@ -317,7 +462,8 @@ export default function Preview({
         {mode === 'preview' ? (
           <div className="h-full bg-ink-100 flex items-center justify-center p-4 overflow-auto">
             <iframe
-              key={currentPath}
+              ref={iframeRef}
+              key={currentPath + (current?.id || '')}
               srcDoc={currentHtml || '<div style="padding:2rem;font-family:sans-serif;color:#717a90;text-align:center">Dang tai...</div>'}
               title={`Preview: ${currentPath}`}
               sandbox="allow-scripts allow-same-origin allow-forms"
@@ -338,6 +484,16 @@ export default function Preview({
           </div>
         )}
       </div>
+
+      {/* v0.8: Domain settings modal */}
+      {showDomain && current && (
+        <DomainSettings
+          project={current}
+          onClose={() => setShowDomain(false)}
+          onUpdated={() => onProjectUpdate?.()}
+          showToast={showToast}
+        />
+      )}
     </>
   )
 }

@@ -4,7 +4,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 
-export default function UserMenu({ user, onSignOut }) {
+export default function UserMenu({ user, onSignOut, onShowBilling }) {
   const [open, setOpen] = useState(false)
   const menuRef = useRef(null)
 
@@ -64,6 +64,17 @@ export default function UserMenu({ user, onSignOut }) {
               </div>
             </div>
           </div>
+
+          <button
+            onClick={() => { setOpen(false); onShowBilling?.() }}
+            className="w-full text-left px-3 py-2.5 text-sm hover:bg-ink-50 transition flex items-center gap-2 text-ink-700 border-b border-ink-100"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/>
+            </svg>
+            <span>Nang cap goi</span>
+            <span className="ml-auto text-[10px] text-brand-600 font-semibold">PRO</span>
+          </button>
 
           <button
             onClick={() => {

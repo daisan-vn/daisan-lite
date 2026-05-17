@@ -16,31 +16,36 @@ import Preview from './components/Preview'
 import Toast from './components/Toast'
 import Auth from './components/Auth'
 import UserMenu from './components/UserMenu'
+import BillingPage from './components/BillingPage'
+import PaymentReturn from './components/PaymentReturn'
 import { useAuth } from './hooks/useAuth'
 import { apiGet, apiDelete, apiPatch, apiPost, apiPostStream } from './lib/api'
 
 export default function App() {
   const { user, loading: authLoading, signOut } = useAuth()
 
-  // ─── Neu dang check auth: show splash ──────────────────────────────────
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-ink-50">
-        <div className="text-center">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold text-lg shadow-soft mx-auto mb-3 animate-pulse-slow">D</div>
-          <p className="text-sm text-ink-500">Dang tai...</p>
-        </div>
-      </div>
-    )
+  // ─── VNPay redirect handler (URL /billing/return) ──────────────────────
+  if (window.location.pathname === '/billing/return') {
+    if (authLoading) return <SplashScreen />
+    if (!user) return <Auth />
+    return <PaymentReturn />
   }
 
-  // ─── Chua dang nhap: hien login ────────────────────────────────────────
-  if (!user) {
-    return <Auth />
-  }
+  if (authLoading) return <SplashScreen />
+  if (!user) return <Auth />
 
-  // ─── Da dang nhap: app chinh ───────────────────────────────────────────
   return <MainApp user={user} onSignOut={signOut} />
+}
+
+function SplashScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-ink-50">
+      <div className="text-center">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold text-lg shadow-soft mx-auto mb-3 animate-pulse-slow">D</div>
+        <p className="text-sm text-ink-500">Dang tai...</p>
+      </div>
+    </div>
+  )
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -54,10 +59,11 @@ function MainApp({ user, onSignOut }) {
   const [streamMode, setStreamMode] = useState(null)
   const [projects, setProjects] = useState([])
   const [toast, setToast] = useState(null)
+  const [view, setView] = useState('main')   // 'main' | 'billing'  (v0.7)
 
   const showToast = useCallback((message, type = 'info') => {
     setToast({ message, type })
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), 4000)
   }, [])
 
   useEffect(() => { fetchProjects() }, [])
@@ -129,7 +135,16 @@ function MainApp({ user, onSignOut }) {
         }
       }
     } catch (err) {
-      showToast('Loi: ' + err.message, 'error')
+      // v0.7: Detect limit errors → suggest upgrade
+      const isLimit = err.message.includes('Da het quota') ||
+                      err.message.includes('Da dat gioi han') ||
+                      err.message.includes('Nang cap')
+      if (isLimit) {
+        showToast(err.message + ' → Click "Nang cap goi"', 'error')
+        setTimeout(() => setView('billing'), 1500)
+      } else {
+        showToast('Loi: ' + err.message, 'error')
+      }
     } finally {
       setIsStreaming(false)
       setStreamMode(null)
@@ -227,7 +242,7 @@ function MainApp({ user, onSignOut }) {
       {/* ─── Header ──────────────────────────────────────── */}
       <header className="bg-white border-b border-ink-200 px-5 py-2.5 flex items-center justify-between flex-shrink-0">
         <button
-          onClick={handleNewProject}
+          onClick={() => { setView('main'); handleNewProject() }}
           className="flex items-center gap-3 group"
           disabled={isStreaming}
         >
@@ -254,11 +269,14 @@ function MainApp({ user, onSignOut }) {
             </button>
           )}
           <div className="w-px h-6 bg-ink-200 mx-1"></div>
-          <UserMenu user={user} onSignOut={onSignOut} />
+          <UserMenu user={user} onSignOut={onSignOut} onShowBilling={() => setView('billing')} />
         </div>
       </header>
 
-      {/* ─── Main: 2 cot ─────────────────────────────────── */}
+      {/* ─── Main vs Billing view ─────────────────────────── */}
+      {view === 'billing' ? (
+        <BillingPage onBack={() => setView('main')} showToast={showToast} />
+      ) : (
       <div className="flex-1 flex overflow-hidden">
         <aside className="w-[400px] border-r border-ink-200 bg-white flex flex-col">
           <PromptInput
@@ -289,9 +307,11 @@ function MainApp({ user, onSignOut }) {
             publishLoading={publishLoading}
             onTemplateCloned={handleTemplateCloned}
             showToast={showToast}
+            onProjectUpdate={() => current?.id && handleSelectProject(current.id)}
           />
         </main>
       </div>
+      )}
 
       {toast && <Toast message={toast.message} type={toast.type} />}
     </div>
