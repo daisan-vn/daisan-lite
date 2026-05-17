@@ -5,7 +5,8 @@
 import { useState, useEffect, useRef } from 'react'
 import TemplatesGrid from './TemplatesGrid'
 import DomainSettings from './DomainSettings'
-import { apiPost } from '../lib/api'
+import LeadsPanel from './LeadsPanel'
+import { apiPost, apiGet } from '../lib/api'
 import { uploadProjectImage, resizeImage } from '../lib/imageUpload'
 import { useT } from '../hooks/useLanguage'
 
@@ -21,6 +22,8 @@ export default function Preview({
   const [currentPath, setCurrentPath] = useState('index.html')
   const [publishOpen, setPublishOpen] = useState(false)
   const [showDomain, setShowDomain] = useState(false)
+  const [showLeads, setShowLeads] = useState(false)
+  const [leadsUnread, setLeadsUnread] = useState(0)
   // v0.9: Edit mode state
   const [editMode, setEditMode] = useState(false)
   const [editDirty, setEditDirty] = useState(false)
@@ -183,6 +186,20 @@ export default function Preview({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // v0.14: poll unread leads count khi co project + published
+  useEffect(() => {
+    if (!current?.id || !current?.is_published) { setLeadsUnread(0); return }
+    let cancelled = false
+    function fetchUnread() {
+      apiGet(`/api/projects/${current.id}/leads`)
+        .then(d => { if (!cancelled) setLeadsUnread(d.unreadCount || 0) })
+        .catch(() => {})
+    }
+    fetchUnread()
+    const interval = setInterval(fetchUnread, 30000)   // refresh moi 30s
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [current?.id, current?.is_published, showLeads])
+
   // ─── Empty state → TemplatesGrid (owner) or message (client) ────────
   if (!current && !isStreaming) {
     if (isClient) {
@@ -310,6 +327,23 @@ export default function Preview({
 
         {current && !isStreaming && (
           <div className="flex gap-1 items-center">
+            {/* v0.14: Leads button + unread badge */}
+            {current.is_published && (
+              <button onClick={() => setShowLeads(true)} disabled={editMode}
+                className="relative px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-ink-700 hover:bg-ink-50 transition flex items-center gap-1.5 border border-ink-200 disabled:opacity-40">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                Leads
+                {leadsUnread > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    {leadsUnread > 99 ? '99+' : leadsUnread}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* v0.9: Edit toggle */}
             {!editMode ? (
               <button onClick={toggleEditMode} title={t('preview.editText')}
@@ -562,6 +596,17 @@ export default function Preview({
         onChange={handleImageFileSelected}
         className="hidden"
       />
+
+      {/* v0.14: Leads panel */}
+      {showLeads && current && (
+        <LeadsPanel
+          projectId={current.id}
+          projectName={current.site_name || current.name}
+          isOwner={current.role === 'owner'}
+          onClose={() => setShowLeads(false)}
+          showToast={showToast}
+        />
+      )}
     </>
   )
 }

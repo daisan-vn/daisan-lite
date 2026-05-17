@@ -463,6 +463,85 @@ function injectAllPages(pages) {
   return result
 }
 
+// ─── LIVE FORM HANDLER (v0.14) ──────────────────────────────────────────
+// Inject vao published site (KHONG iframe). Bat <form> submit → POST lead
+// ve API → hien thong bao thanh cong → khong reload page.
+function injectLivePageScript(html, slug, baseUrl) {
+  if (!html || !slug) return html
+  const apiBase = (baseUrl || '').replace(/\/$/, '')
+  const script = `
+<script data-daisan-inject="true">
+(function() {
+  // Chi chay khi la live page (khong trong iframe builder)
+  var inIframe = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
+  if (inIframe) return;
+
+  var SLUG = ${JSON.stringify(slug)};
+  var API  = ${JSON.stringify(apiBase + '/api/site/' + slug + '/lead')};
+
+  function showSuccessNotice(form) {
+    var notice = document.createElement('div');
+    notice.style.cssText = 'padding:16px 20px;border-radius:8px;background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;font-family:inherit;text-align:center;margin:8px 0;';
+    notice.textContent = 'Da gui thanh cong! Chung toi se lien lac som.';
+    form.parentNode.insertBefore(notice, form);
+    form.style.display = 'none';
+  }
+  function showErrorNotice(form, msg) {
+    var notice = document.createElement('div');
+    notice.style.cssText = 'padding:12px 16px;border-radius:8px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-family:inherit;margin:8px 0;font-size:14px;';
+    notice.textContent = 'Gui that bai: ' + msg;
+    form.parentNode.insertBefore(notice, form);
+    setTimeout(function() { try { notice.remove(); } catch(e){} }, 6000);
+  }
+
+  document.addEventListener('submit', function(e) {
+    var form = e.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    e.preventDefault();
+
+    // Collect form fields (input/textarea/select co name)
+    var data = {};
+    var fields = form.querySelectorAll('input[name], textarea[name], select[name]');
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (f.type === 'submit' || f.type === 'button') continue;
+      if (f.type === 'checkbox' || f.type === 'radio') {
+        if (f.checked) data[f.name] = f.value;
+      } else {
+        data[f.name] = (f.value || '').slice(0, 2000);  // cap length
+      }
+    }
+
+    // Disable button + show loading
+    var btn = form.querySelector('button[type="submit"], input[type="submit"]');
+    var originalBtnText = btn ? btn.textContent : null;
+    if (btn) { btn.disabled = true; btn.textContent = 'Dang gui...'; }
+
+    fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        data: data,
+        source_page: location.pathname.split('/').pop() || 'index.html'
+      })
+    }).then(function(r) {
+      return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+    }).then(function(res) {
+      if (res.ok) showSuccessNotice(form);
+      else showErrorNotice(form, res.body.error || 'Loi mang');
+    }).catch(function(err) {
+      showErrorNotice(form, err.message || 'Loi ket noi');
+    }).finally(function() {
+      if (btn) { btn.disabled = false; btn.textContent = originalBtnText; }
+    });
+  });
+})();
+</script>
+`
+  if (html.includes('</body>')) return html.replace('</body>', script + '</body>')
+  return html + script
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 //  SYSTEM PROMPTS (v0.7.1 — MARKER format, fix JSON parse hell)
 // ═══════════════════════════════════════════════════════════════════════
@@ -603,6 +682,9 @@ async function servePublicSite(req, res) {
       html = injectFreeBadge(html)
     }
 
+    // v0.14: Inject form handler de leads POST ve API
+    html = injectLivePageScript(html, slug, getPublicBaseUrl(req))
+
     // Track view (fire-and-forget)
     if (filename === 'index.html') {
       supabase
@@ -626,6 +708,77 @@ async function servePublicSite(req, res) {
 app.get('/site/:slug', servePublicSite)
 app.get('/site/:slug/', servePublicSite)
 app.get('/site/:slug/:filename', servePublicSite)
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PUBLIC LEAD SUBMIT (v0.14) — khong can auth, rate-limited theo IP
+// ═══════════════════════════════════════════════════════════════════════
+// In-memory rate limit (don't lose much if restart). 1 IP gui max 10 lead/10min.
+const leadRateLimit = new Map()
+function checkLeadRateLimit(ip) {
+  const now = Date.now()
+  const WINDOW_MS = 10 * 60 * 1000
+  const MAX = 10
+  const bucket = leadRateLimit.get(ip) || []
+  const fresh = bucket.filter(t => now - t < WINDOW_MS)
+  if (fresh.length >= MAX) return false
+  fresh.push(now)
+  leadRateLimit.set(ip, fresh)
+  return true
+}
+// Cleanup map dinh ky de tranh memory leak
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000
+  for (const [ip, arr] of leadRateLimit.entries()) {
+    const fresh = arr.filter(t => t > cutoff)
+    if (fresh.length === 0) leadRateLimit.delete(ip)
+    else leadRateLimit.set(ip, fresh)
+  }
+}, 5 * 60 * 1000).unref?.()
+
+app.post('/api/site/:slug/lead', async (req, res) => {
+  try {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+      || req.socket.remoteAddress || 'unknown'
+    if (!checkLeadRateLimit(ip)) {
+      return res.status(429).json({ error: 'Qua nhieu request, vui long thu lai sau' })
+    }
+
+    const { data, source_page } = req.body || {}
+    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'Thieu noi dung form' })
+    }
+    // Cap size cho data — chong abuse
+    const dataStr = JSON.stringify(data)
+    if (dataStr.length > 10000) {
+      return res.status(400).json({ error: 'Du lieu form qua lon' })
+    }
+
+    // Tim project tu slug (phai is_published)
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id, is_published')
+      .eq('slug', req.params.slug)
+      .eq('is_published', true)
+      .maybeSingle()
+    if (!project) return res.status(404).json({ error: 'Site khong ton tai' })
+
+    // Insert lead
+    const { error: insErr } = await supabase.from('leads').insert({
+      project_id:   project.id,
+      data:         data,
+      source_page:  source_page?.slice(0, 100) || null,
+      submitter_ip: ip.slice(0, 64),
+      user_agent:   (req.headers['user-agent'] || '').slice(0, 300)
+    })
+    if (insErr) throw insErr
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error('[public-lead-submit]', err)
+    res.status(500).json({ error: 'Loi server' })
+  }
+})
 
 
 // ─── CUSTOM DOMAIN MIDDLEWARE (v0.8) ──────────────────────────────────
@@ -653,7 +806,7 @@ async function customDomainMiddleware(req, res, next) {
   try {
     const { data: project } = await supabase
       .from('projects')
-      .select('id, user_id, pages, site_name, is_published, view_count, custom_domain_verified')
+      .select('id, user_id, slug, pages, site_name, is_published, view_count, custom_domain_verified')
       .eq('custom_domain', host)
       .eq('is_published', true)
       .maybeSingle()
@@ -682,6 +835,13 @@ async function customDomainMiddleware(req, res, next) {
     const ownerPlan = getPlan(ownerSub.plan_id)
     if (ownerPlan.has_watermark) {
       html = injectFreeBadge(html)
+    }
+
+    // v0.14: Inject form handler script (slug = project slug, baseUrl = custom domain)
+    if (project.slug) {
+      // Custom domain dung host header lam baseUrl de form POST quay ve cung domain
+      const baseUrl = (req.headers['x-forwarded-proto'] || 'https') + '://' + host
+      html = injectLivePageScript(html, project.slug, baseUrl)
     }
 
     // Track view
@@ -880,6 +1040,73 @@ app.post('/api/projects/:id/save-edits', requireAuth, async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+// ════════════════════════════════════════════════════════════════════════
+//  LEADS ENDPOINTS (v0.14) — owner va client xem + manage leads
+// ════════════════════════════════════════════════════════════════════════
+
+// GET /api/projects/:id/leads — list leads cua 1 project
+app.get('/api/projects/:id/leads', requireAuth, async (req, res) => {
+  try {
+    // Verify quyen (owner OR client)
+    const role = await getUserRole(req.user.id, req.params.id)
+    if (!role) return res.status(403).json({ error: 'Khong co quyen xem leads cua project nay' })
+
+    const { data, error } = await supabase
+      .from('leads')
+      .select('id, data, source_page, read_at, created_at')
+      .eq('project_id', req.params.id)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (error) throw error
+
+    const leads = data || []
+    const unreadCount = leads.filter(l => !l.read_at).length
+    res.json({ leads, unreadCount })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/projects/:id/leads/:lid — mark read / unread
+app.patch('/api/projects/:id/leads/:lid', requireAuth, async (req, res) => {
+  try {
+    const role = await getUserRole(req.user.id, req.params.id)
+    if (!role) return res.status(403).json({ error: 'Khong co quyen' })
+
+    const setRead = req.body?.read !== false   // default mark read
+    const { error } = await supabase
+      .from('leads')
+      .update({ read_at: setRead ? new Date().toISOString() : null })
+      .eq('id', req.params.lid)
+      .eq('project_id', req.params.id)
+    if (error) throw error
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/projects/:id/leads/:lid — chi owner duoc xoa lead
+app.delete('/api/projects/:id/leads/:lid', requireAuth, async (req, res) => {
+  try {
+    // Verify owner (khong cho client xoa, de chong client xoa nham/abuse)
+    const { data: proj } = await supabase
+      .from('projects').select('user_id')
+      .eq('id', req.params.id).single()
+    if (!proj || proj.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Chi owner duoc xoa leads' })
+    }
+    const { error } = await supabase
+      .from('leads').delete()
+      .eq('id', req.params.lid).eq('project_id', req.params.id)
+    if (error) throw error
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 
 // ════════════════════════════════════════════════════════════════════════
 //  CLIENT INVITE ENDPOINTS (v0.10)
