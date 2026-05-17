@@ -1,8 +1,24 @@
 {
   "rewrites": [
     {
-      "source": "/site/:path*",
-      "destination": "https://daisan-lite.onrender.com/site/:path*"
+      "source": "/site",
+      "destination": "https://daisan-lite.onrender.com/site"
+    },
+    {
+      "source": "/site/:slug",
+      "destination": "https://daisan-lite.onrender.com/site/:slug"
+    },
+    {
+      "source": "/site/:slug/:filename*",
+      "destination": "https://daisan-lite.onrender.com/site/:slug/:filename*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://daisan-lite.onrender.com/api/:path*"
+    },
+    {
+      "source": "/((?!assets/|.*\\.).*)",
+      "destination": "/index.html"
     }
   ]
 }
