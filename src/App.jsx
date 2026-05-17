@@ -290,7 +290,7 @@ function MainApp({ user, onSignOut }) {
         </button>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-ink-400 font-mono">v0.11</span>
+          <span className="text-[11px] text-ink-400 font-mono">v0.12</span>
 
           {/* Owner-only: Invite client button */}
           {!isClient && current && (

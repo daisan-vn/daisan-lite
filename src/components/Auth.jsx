@@ -196,7 +196,7 @@ export default function Auth() {
 
       {/* Help text duoi cung */}
       <div className="absolute bottom-4 left-0 right-0 text-center text-[11px] text-ink-400">
-        DaisanAI Lite v0.11 — i18n VI/EN
+        DaisanAI Lite v0.12
       </div>
     </div>
   )

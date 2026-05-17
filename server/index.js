@@ -451,7 +451,7 @@ QUY TAC:
 // ═══════════════════════════════════════════════════════════════════════
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, version: '0.10.0', time: new Date().toISOString() })
+  res.json({ ok: true, version: '0.12.0', time: new Date().toISOString() })
 })
 
 // ─── GET /site/:slug/ va /site/:slug/:filename ────────────────────────
@@ -1562,7 +1562,7 @@ const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log('')
   console.log('  ┌──────────────────────────────────────────────┐')
-  console.log('  │   DaisanAI Lite v0.10 — Server san sang!     │')
+  console.log('  │   DaisanAI Lite v0.12 — Server san sang!     │')
   console.log(`  │   API:    http://localhost:${PORT}              │`)
   console.log(`  │   Web:    http://localhost:5173              │`)
   console.log(`  │   Sites:  http://localhost:5173/site/<slug>  │`)
