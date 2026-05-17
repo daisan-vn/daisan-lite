@@ -135,12 +135,17 @@ function MainApp({ user, onSignOut }) {
 
   useEffect(() => { fetchProjects() }, [])
 
-  // v0.10: Auto-select project from URL (after client accept invite)
+  // v0.15: Deep link cho email notify: ?project=<id>&openLeads=1
+  const [autoOpenLeads, setAutoOpenLeads] = useState(false)
+
+  // v0.10: Auto-select project from URL (after client accept invite hoac email link)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const projectId = params.get('project')
     if (projectId && projects.length > 0 && !current) {
       handleSelectProject(projectId)
+      // v0.15: neu URL co openLeads=1, set flag de Preview auto-mo panel
+      if (params.get('openLeads') === '1') setAutoOpenLeads(true)
       window.history.replaceState({}, '', '/')
     }
   }, [projects])
@@ -444,6 +449,8 @@ function MainApp({ user, onSignOut }) {
             showToast={showToast}
             onProjectUpdate={() => current?.id && handleSelectProject(current.id)}
             isClient={isClient}
+            autoOpenLeads={autoOpenLeads}
+            onLeadsOpened={() => setAutoOpenLeads(false)}
           />
         </main>
       </div>

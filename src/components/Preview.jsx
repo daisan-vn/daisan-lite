@@ -14,7 +14,8 @@ export default function Preview({
   current, streamText, isStreaming, streamMode,
   onPublish, onUnpublish, publishLoading,
   onTemplateCloned, showToast, onProjectUpdate,
-  isClient = false
+  isClient = false,
+  autoOpenLeads = false, onLeadsOpened
 }) {
   const t = useT()
   const [mode, setMode] = useState('preview')
@@ -199,6 +200,14 @@ export default function Preview({
     const interval = setInterval(fetchUnread, 30000)   // refresh moi 30s
     return () => { cancelled = true; clearInterval(interval) }
   }, [current?.id, current?.is_published, showLeads])
+
+  // v0.15: deep-link tu email notify auto-mo Leads panel
+  useEffect(() => {
+    if (autoOpenLeads && current?.id) {
+      setShowLeads(true)
+      onLeadsOpened?.()
+    }
+  }, [autoOpenLeads, current?.id, onLeadsOpened])
 
   // ─── Empty state → TemplatesGrid (owner) or message (client) ────────
   if (!current && !isStreaming) {

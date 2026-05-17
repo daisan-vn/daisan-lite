@@ -23,6 +23,7 @@ import {
   checkGenerateAllowed, checkProjectLimitAllowed,
   upgradeUserPlan, injectFreeBadge
 } from './lib/billing.js'
+import { sendLeadNotificationEmail, isEmailConfigured } from './lib/emailNotify.js'
 
 const app = express()
 app.use(cors())
@@ -757,7 +758,7 @@ app.post('/api/site/:slug/lead', async (req, res) => {
     // Tim project tu slug (phai is_published)
     const { data: project } = await supabase
       .from('projects')
-      .select('id, is_published')
+      .select('id, user_id, name, site_name, is_published')
       .eq('slug', req.params.slug)
       .eq('is_published', true)
       .maybeSingle()
@@ -772,6 +773,20 @@ app.post('/api/site/:slug/lead', async (req, res) => {
       user_agent:   (req.headers['user-agent'] || '').slice(0, 300)
     })
     if (insErr) throw insErr
+
+    // v0.15: Gui email notify cho owner (fire-and-forget, khong block response)
+    sendLeadNotificationEmail({
+      supabase,
+      ownerUserId: project.user_id,
+      projectId:   project.id,
+      projectName: project.name,
+      siteName:    project.site_name,
+      leadData:    data,
+      sourcePage:  source_page,
+      submitterIp: ip
+    }).then(r => {
+      if (!r.ok && !r.skipped) console.warn('[lead-email]', r.error)
+    }).catch(err => console.error('[lead-email] uncaught:', err))
 
     res.json({ success: true })
   } catch (err) {
@@ -2125,6 +2140,7 @@ app.listen(PORT, () => {
   console.log(`  │   Domain: Pro+ feature san sang              │`)
   console.log(`  │   Edit:   Inline text edit ENABLED ✨        │`)
   console.log(`  │   Client: Invite system ENABLED 👥           │`)
+  console.log(`  │   Email:  ${isEmailConfigured() ? 'Resend configured ✓'.padEnd(32) : 'SKIP (RESEND_API_KEY chua set)'.padEnd(32)}│`)
   console.log('  └──────────────────────────────────────────────┘')
   console.log('')
   if (!process.env.ANTHROPIC_API_KEY?.startsWith('sk-')) {
