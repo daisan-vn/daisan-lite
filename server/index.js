@@ -158,26 +158,40 @@ async function generateUniqueSlug(name, attempts = 0) {
   return slug
 }
 
-// ─── HTML SANITIZER (v0.10.1 — chong XSS qua /save-edits) ────────────────
-// User (owner hoac client) gui HTML qua inline-edit → server phai sanitize
-// truoc khi luu DB va serve public. Allowlist script CDN cho AI-generated content.
+// ─── HTML SANITIZER (v0.10.1, hardened v0.12) ────────────────────────────
+// User (owner hoac client) gui HTML qua inline-edit → server phai sanitize.
+// Allowlist script CDN PIN cu the de ngan attacker upload npm pkg gia.
+//
+// v0.12 fixes (tu security audit):
+//   C1: strip control chars (tab/newline) truoc khi check scheme → chong
+//       bypass href="java<TAB>script:alert(1)" (browser strip tab khi parse)
+//   C2: bo jsdelivr/unpkg khoi allowlist — attacker co the publish package
+//       gia. AI gen chi can tailwindcss. unpkg/jsdelivr neu sau nay can
+//       thi pin den exact path version (vd /npm/alpinejs@3.13.0/dist/...).
 const ALLOWED_SCRIPT_SRC_PREFIXES = [
-  'https://cdn.tailwindcss.com',
-  'https://cdn.jsdelivr.net/',
-  'https://unpkg.com/',
-  'https://fonts.googleapis.com/'
+  'https://cdn.tailwindcss.com'
+  // Khong them jsdelivr / unpkg trong allowlist nua — moi attacker publish
+  // duoc npm package se bypass duoc. Neu can them lib khac, pin URL chinh xac:
+  //   'https://cdn.jsdelivr.net/npm/alpinejs@3.13.0/dist/cdn.min.js'
 ]
 
 const URL_ATTR_NAMES = new Set([
   'href', 'src', 'action', 'formaction', 'xlink:href', 'srcset', 'background', 'poster'
 ])
-const DANGEROUS_SCHEME_RE = /^\s*(javascript|vbscript|data\s*:\s*text\/html)/i
+// C1: regex se duoc apply len value DA strip control chars
+const DANGEROUS_SCHEME_RE = /^(javascript|vbscript|data:text\/html|data:application\/(x-)?javascript)/i
+
+function normalizeUrlScheme(value) {
+  // Browser parse javascript: URL very leniently: strip null + control chars
+  // (\x00-\x20) before checking scheme. Sanitizer phai lam giong de match.
+  return String(value || '').replace(/[\x00-\x20]/g, '').toLowerCase()
+}
 
 function sanitizeUserHtml(html) {
   if (!html || typeof html !== 'string') return html
   const $ = cheerio.load(html, { decodeEntities: false })
 
-  // 1. Xoa cac tag co the nhung noi dung tu y / redirect
+  // 1. Xoa cac tag co the nhung noi dung tu y / redirect / iframe escape
   $('iframe, object, embed, base, applet, frame, frameset').remove()
   $('meta[http-equiv]').remove()
   $('link[rel="import"]').remove()
@@ -193,15 +207,18 @@ function sanitizeUserHtml(html) {
     el.attribs = { src }
   })
 
-  // 3. Strip on* handlers, javascript:/vbscript: URL, srcdoc, nonce trong moi tag
+  // 3. Strip on* handlers, dangerous scheme URL, srcdoc, nonce trong moi tag
   $('*').each((_, el) => {
     if (!el.attribs) return
     for (const name of Object.keys(el.attribs)) {
       const lower = name.toLowerCase()
       if (lower.startsWith('on')) { delete el.attribs[name]; continue }
       if (lower === 'srcdoc' || lower === 'nonce') { delete el.attribs[name]; continue }
-      if (URL_ATTR_NAMES.has(lower) && DANGEROUS_SCHEME_RE.test(el.attribs[name] || '')) {
-        delete el.attribs[name]
+      if (URL_ATTR_NAMES.has(lower)) {
+        const normalized = normalizeUrlScheme(el.attribs[name])
+        if (DANGEROUS_SCHEME_RE.test(normalized)) {
+          delete el.attribs[name]
+        }
       }
     }
   })
@@ -1267,8 +1284,23 @@ app.post('/api/billing/create-payment', requireAuth, async (req, res) => {
     })
 
     // ─── MOCK MODE: neu VNPay chua config → auto-upgrade ──────────────
+    // C4 fix: chi cho phep mock trong dev/staging. Production phai co
+    // VNPay config that su, neu khong se tra 503 → user khong tu nang cap free duoc.
     if (!vnpay.isVnpayConfigured()) {
-      // Upgrade ngay (MOCK)
+      const allowMock = process.env.NODE_ENV !== 'production'
+        || process.env.ALLOW_MOCK_BILLING === 'true'
+      if (!allowMock) {
+        // Mark payment failed va tra loi ro rang
+        await supabase
+          .from('payments')
+          .update({ status: 'failed', vnp_response_code: 'config_missing' })
+          .eq('vnp_txn_ref', txnRef)
+        return res.status(503).json({
+          error: 'Cong thanh toan chua duoc cau hinh. Vui long lien he support.',
+          reason: 'vnpay_not_configured'
+        })
+      }
+      // Mock chi chay trong dev
       await upgradeUserPlan(supabase, req.user.id, plan.id, 1)
       await supabase
         .from('payments')
@@ -1277,7 +1309,7 @@ app.post('/api/billing/create-payment', requireAuth, async (req, res) => {
 
       return res.json({
         mock: true,
-        message: 'VNPay chua config → mock upgrade thanh cong (chi de test UX)',
+        message: 'VNPay chua config → mock upgrade thanh cong (chi de test UX, DEV ONLY)',
         plan
       })
     }

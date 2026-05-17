@@ -694,7 +694,7 @@ function AdminTemplateEditor({ templateId, templateName, onClose, showToast }) {
           key={currentPath + templateId}
           srcDoc={currentHtml}
           title={`Edit ${currentPath}`}
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          sandbox="allow-scripts allow-forms"
           className="w-full h-full bg-white shadow-card rounded-lg"
           style={{ minHeight: '600px' }}
         />

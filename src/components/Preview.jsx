@@ -484,7 +484,7 @@ export default function Preview({
               key={currentPath + (current?.id || '')}
               srcDoc={currentHtml || '<div style="padding:2rem;font-family:sans-serif;color:#717a90;text-align:center">Dang tai...</div>'}
               title={`Preview: ${currentPath}`}
-              sandbox="allow-scripts allow-same-origin allow-forms"
+              sandbox="allow-scripts allow-forms"
               className="bg-white shadow-card rounded-lg transition-all duration-300"
               style={{
                 width: viewportWidth, height: '100%', maxWidth: '100%',
