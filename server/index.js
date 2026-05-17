@@ -53,6 +53,20 @@ async function requireAuth(req, res, next) {
   }
 }
 
+// ─── v0.10: Role detection — owner vs client ─────────────────────────────
+// Tra ve 'owner' | 'client' | null cho user voi project nay
+async function getUserRole(userId, projectId) {
+  if (!userId || !projectId) return null
+  const { data, error } = await supabase
+    .from('projects')
+    .select('user_id, client_user_id')
+    .eq('id', projectId).single()
+  if (error || !data) return null
+  if (data.user_id === userId) return 'owner'
+  if (data.client_user_id === userId) return 'client'
+  return null
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 //  HELPERS
 // ═══════════════════════════════════════════════════════════════════════
@@ -384,7 +398,7 @@ QUY TAC:
 // ═══════════════════════════════════════════════════════════════════════
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, version: '0.9.0', time: new Date().toISOString() })
+  res.json({ ok: true, version: '0.10.0', time: new Date().toISOString() })
 })
 
 // ─── GET /site/:slug/ va /site/:slug/:filename ────────────────────────
@@ -564,14 +578,20 @@ app.get('/api/me', requireAuth, (req, res) => {
 
 app.get('/api/projects', requireAuth, async (req, res) => {
   try {
+    // v0.10: get projects where user is OWNER or CLIENT
     const { data, error } = await supabase
       .from('projects')
-      .select('id, name, prompt, site_name, slug, is_published, view_count, created_at, updated_at')
-      .eq('user_id', req.user.id)
+      .select('id, name, prompt, site_name, slug, is_published, view_count, created_at, updated_at, user_id, client_user_id')
+      .or(`user_id.eq.${req.user.id},client_user_id.eq.${req.user.id}`)
       .order('updated_at', { ascending: false })
       .limit(50)
     if (error) throw error
-    res.json({ projects: data })
+    // Them field 'role' cho moi project (owner/client) → frontend biet quyen
+    const projectsWithRole = (data || []).map(p => ({
+      ...p,
+      role: p.user_id === req.user.id ? 'owner' : 'client'
+    }))
+    res.json({ projects: projectsWithRole })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -579,14 +599,19 @@ app.get('/api/projects', requireAuth, async (req, res) => {
 
 app.get('/api/projects/:id', requireAuth, async (req, res) => {
   try {
+    // v0.10: allow owner OR client to view
     const { data, error } = await supabase
       .from('projects').select('*')
-      .eq('id', req.params.id).eq('user_id', req.user.id).single()
+      .eq('id', req.params.id)
+      .or(`user_id.eq.${req.user.id},client_user_id.eq.${req.user.id}`)
+      .single()
     if (error) throw error
     if ((!data.pages || Object.keys(data.pages).length === 0) && data.html) {
       data.pages = { 'index.html': data.html }
       data.navigation = [{ name: 'Trang chu', path: 'index.html' }]
     }
+    // Add role field
+    data.role = data.user_id === req.user.id ? 'owner' : 'client'
     res.json(data)
   } catch (err) {
     res.status(404).json({ error: 'Khong tim thay project' })
@@ -619,9 +644,10 @@ app.patch('/api/projects/:id', requireAuth, async (req, res) => {
   }
 })
 
-// ─── POST /api/projects/:id/save-edits (v0.9) — inline text edits ─────
+// ─── POST /api/projects/:id/save-edits (v0.9, updated v0.10) ───────────
 // User edit text trong iframe → frontend gui ve HTML moi cho 1 page
 // Khong dung AI, khong ton quota → FREE cho moi tier
+// v0.10: cho ca OWNER va CLIENT cua project edit
 app.post('/api/projects/:id/save-edits', requireAuth, async (req, res) => {
   try {
     const { filename, html } = req.body
@@ -638,11 +664,15 @@ app.post('/api/projects/:id/save-edits', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'HTML qua lon (> 500KB)' })
     }
 
-    // Load project, check ownership
+    // v0.10: Check role (owner OR client) — KHONG dung user_id filter cung
+    const role = await getUserRole(req.user.id, req.params.id)
+    if (!role) return res.status(403).json({ error: 'Khong co quyen edit project nay' })
+
+    // Load project pages
     const { data: project, error: lErr } = await supabase
       .from('projects')
       .select('id, pages')
-      .eq('id', req.params.id).eq('user_id', req.user.id).single()
+      .eq('id', req.params.id).single()
 
     if (lErr || !project) return res.status(404).json({ error: 'Project khong ton tai' })
 
@@ -654,7 +684,7 @@ app.post('/api/projects/:id/save-edits', requireAuth, async (req, res) => {
     // Re-inject nav script (vi frontend gui HTML clean, server tu inject lai)
     pages[filename] = injectNavScript(html)
 
-    // Update DB
+    // Update DB (chi update pages, khong filter user_id vi da check role)
     const updates = { pages }
     // Neu day la index → cap nhat truong html chinh (dung cho backward compat)
     if (filename === 'index.html') {
@@ -663,13 +693,166 @@ app.post('/api/projects/:id/save-edits', requireAuth, async (req, res) => {
 
     const { data: updated, error: uErr } = await supabase
       .from('projects').update(updates)
-      .eq('id', req.params.id).eq('user_id', req.user.id).select().single()
+      .eq('id', req.params.id).select().single()
 
     if (uErr) throw uErr
 
-    res.json({ success: true, project: updated })
+    // Add role to response
+    updated.role = role
+    res.json({ success: true, project: updated, role })
   } catch (err) {
     console.error('[save-edits]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ════════════════════════════════════════════════════════════════════════
+//  CLIENT INVITE ENDPOINTS (v0.10)
+// ════════════════════════════════════════════════════════════════════════
+
+// ─── POST /api/projects/:id/invite-client ───────────────────────────────
+// Owner sinh invite link cho client → return link de share qua Zalo/email
+app.post('/api/projects/:id/invite-client', requireAuth, async (req, res) => {
+  try {
+    const { email } = req.body || {}
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({ error: 'Email khong hop le' })
+    }
+
+    // Verify owner
+    const { data: project, error: pErr } = await supabase
+      .from('projects')
+      .select('id, name, user_id, client_email, client_user_id')
+      .eq('id', req.params.id).eq('user_id', req.user.id).single()
+
+    if (pErr || !project) {
+      return res.status(404).json({ error: 'Project khong ton tai hoac ban khong phai owner' })
+    }
+
+    // Generate token + 30 day expiry
+    const token = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+
+    const { error: uErr } = await supabase.from('projects').update({
+      client_email: email.toLowerCase().trim(),
+      client_invite_token: token,
+      client_invite_expires_at: expiresAt.toISOString(),
+      client_invited_at: new Date().toISOString(),
+      // Reset client_user_id neu da link truoc do (cho phep re-invite)
+      client_user_id: null,
+      client_accepted_at: null
+    }).eq('id', req.params.id)
+
+    if (uErr) throw uErr
+
+    // Generate frontend URL — su dung referer header hoac default
+    const baseUrl = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || 'https://webbuilder.daisan.ai'
+    const inviteUrl = `${baseUrl.replace(/\/$/, '')}/client-invite?token=${token}`
+
+    res.json({
+      success: true,
+      inviteUrl,
+      email,
+      expiresAt: expiresAt.toISOString(),
+      projectName: project.name
+    })
+  } catch (err) {
+    console.error('[invite-client]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── GET /api/client-invite/:token ───────────────────────────────────────
+// PUBLIC endpoint — frontend goi de hien thi info project trong page accept
+app.get('/api/client-invite/:token', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('id, name, site_name, client_email, client_invite_expires_at')
+      .eq('client_invite_token', req.params.token)
+      .single()
+
+    if (error || !data) {
+      return res.status(404).json({ error: 'Link moi khong hop le hoac da het han' })
+    }
+
+    if (data.client_invite_expires_at && new Date(data.client_invite_expires_at) < new Date()) {
+      return res.status(410).json({ error: 'Link moi da het han. Hay yeu cau chu DaisanAI tao link moi.' })
+    }
+
+    res.json({
+      projectName: data.name || data.site_name || 'Website',
+      clientEmail: data.client_email,
+      expiresAt: data.client_invite_expires_at
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── POST /api/client-invite/:token/accept ───────────────────────────────
+// Client da dang nhap → link auth.uid() vao project.client_user_id
+app.post('/api/client-invite/:token/accept', requireAuth, async (req, res) => {
+  try {
+    const { data: project, error: pErr } = await supabase
+      .from('projects')
+      .select('id, name, client_email, client_invite_expires_at')
+      .eq('client_invite_token', req.params.token)
+      .single()
+
+    if (pErr || !project) {
+      return res.status(404).json({ error: 'Link moi khong hop le' })
+    }
+
+    if (project.client_invite_expires_at && new Date(project.client_invite_expires_at) < new Date()) {
+      return res.status(410).json({ error: 'Link moi da het han' })
+    }
+
+    // Check user email match client_email
+    const userEmail = (req.user.email || '').toLowerCase().trim()
+    const inviteEmail = (project.client_email || '').toLowerCase().trim()
+    if (!userEmail || userEmail !== inviteEmail) {
+      return res.status(403).json({
+        error: `Email cua ban (${userEmail}) khong khop voi email duoc moi (${inviteEmail}). Hay dang nhap dung email duoc moi.`
+      })
+    }
+
+    // Link user → project, clear token (one-time use)
+    const { error: uErr } = await supabase.from('projects').update({
+      client_user_id: req.user.id,
+      client_invite_token: null,
+      client_accepted_at: new Date().toISOString()
+    }).eq('id', project.id)
+
+    if (uErr) throw uErr
+
+    res.json({
+      success: true,
+      projectId: project.id,
+      projectName: project.name
+    })
+  } catch (err) {
+    console.error('[accept-invite]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── DELETE /api/projects/:id/client ────────────────────────────────────
+// Owner revoke client access
+app.delete('/api/projects/:id/client', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('projects').update({
+      client_email: null,
+      client_user_id: null,
+      client_invite_token: null,
+      client_invite_expires_at: null,
+      client_invited_at: null,
+      client_accepted_at: null
+    }).eq('id', req.params.id).eq('user_id', req.user.id).select().single()
+
+    if (error || !data) return res.status(404).json({ error: 'Project khong ton tai' })
+    res.json({ success: true })
+  } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
@@ -1318,13 +1501,14 @@ const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log('')
   console.log('  ┌──────────────────────────────────────────────┐')
-  console.log('  │   DaisanAI Lite v0.9 — Server san sang!      │')
+  console.log('  │   DaisanAI Lite v0.10 — Server san sang!     │')
   console.log(`  │   API:    http://localhost:${PORT}              │`)
   console.log(`  │   Web:    http://localhost:5173              │`)
   console.log(`  │   Sites:  http://localhost:5173/site/<slug>  │`)
   console.log(`  │   VNPay:  ${vnpay.isVnpayConfigured() ? 'configured ✓' : 'MOCK mode (chua config)'.padEnd(32)}│`)
   console.log(`  │   Domain: Pro+ feature san sang              │`)
   console.log(`  │   Edit:   Inline text edit ENABLED ✨        │`)
+  console.log(`  │   Client: Invite system ENABLED 👥           │`)
   console.log('  └──────────────────────────────────────────────┘')
   console.log('')
   if (!process.env.ANTHROPIC_API_KEY?.startsWith('sk-')) {
