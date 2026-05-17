@@ -1005,6 +1005,134 @@ app.delete('/api/admin/templates/:id', requireAuth, requireAdmin, async (req, re
   }
 })
 
+// GET /api/admin/templates/:id — full data (bao gom pages content)
+app.get('/api/admin/templates/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('templates').select('*').eq('id', req.params.id).single()
+    if (error) throw error
+    res.json(data)
+  } catch (err) {
+    res.status(404).json({ error: 'Khong tim thay template' })
+  }
+})
+
+// POST /api/admin/templates/generate — tao template moi qua AI
+// Body: { slug, name, description, category, industry_label, emoji,
+//         color_from, color_to, default_prompt, display_order, is_featured }
+// Goi Claude API (non-streaming), parse markers, inject nav script, insert vao DB.
+// LUU Y: ton ~$0.05-$0.20 / request → chi admin moi goi duoc.
+app.post('/api/admin/templates/generate', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const {
+      slug, name, description = '', category = 'other', industry_label = '',
+      emoji = '✨', color_from = '#3b5cf5', color_to = '#2a40e6',
+      default_prompt, display_order = 100, is_featured = false
+    } = req.body || {}
+
+    // Validate input
+    if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
+      return res.status(400).json({ error: 'Slug khong hop le (chi cho phep a-z 0-9 dau gach)' })
+    }
+    if (!name?.trim()) return res.status(400).json({ error: 'Thieu name' })
+    if (!default_prompt?.trim() || default_prompt.length < 20) {
+      return res.status(400).json({ error: 'default_prompt phai >= 20 ky tu' })
+    }
+
+    // Check slug khong trung
+    const { data: existing } = await supabase
+      .from('templates').select('id').eq('slug', slug).maybeSingle()
+    if (existing) return res.status(409).json({ error: `Slug "${slug}" da ton tai` })
+
+    // Goi Claude API (giong scripts/seed-templates.js)
+    const message = await claude.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 20000,
+      system: SYSTEM_PROMPT_NEW,
+      messages: [{ role: 'user', content: default_prompt.trim() }]
+    })
+    const fullText = message.content.filter(b => b.type === 'text').map(b => b.text).join('')
+
+    let parsed
+    try { parsed = parseClaudeJSON(fullText) }
+    catch (err) {
+      return res.status(500).json({ error: 'AI khong tra ve format chuan: ' + err.message })
+    }
+    if (!parsed.pages || Object.keys(parsed.pages).length === 0) {
+      return res.status(500).json({ error: 'AI khong tra ve page nao' })
+    }
+
+    // Inject nav script vao tat ca pages
+    const injectedPages = injectAllPages(parsed.pages)
+
+    // Insert vao DB
+    const { data: inserted, error: insErr } = await supabase
+      .from('templates').insert({
+        slug, name: name.trim().slice(0, 100), description: description.slice(0, 500),
+        category, industry_label: industry_label.slice(0, 100),
+        emoji: emoji.slice(0, 4), color_from, color_to,
+        pages: injectedPages,
+        navigation: parsed.navigation.length > 0 ? parsed.navigation
+          : [{ name: 'Trang chu', path: 'index.html' }],
+        site_name: parsed.siteName || name,
+        default_prompt: default_prompt.trim(),
+        display_order: Math.max(0, Math.min(9999, parseInt(display_order) || 100)),
+        is_featured: !!is_featured
+      }).select().single()
+
+    if (insErr) throw insErr
+
+    res.json({
+      success: true,
+      template: inserted,
+      pageCount: Object.keys(injectedPages).length,
+      tokens: message.usage?.output_tokens || 0
+    })
+  } catch (err) {
+    console.error('[admin-generate-template]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/admin/templates/:id/save-edits — save HTML cho 1 page cua template
+// Body: { filename, html } — giong /api/projects/:id/save-edits nhung cho templates
+app.post('/api/admin/templates/:id/save-edits', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { filename, html } = req.body
+    if (!filename?.endsWith('.html')) {
+      return res.status(400).json({ error: 'Filename phai .html' })
+    }
+    if (!html || html.length < 50) return res.status(400).json({ error: 'HTML khong hop le' })
+    if (html.length > 500000) return res.status(400).json({ error: 'HTML qua lon (> 500KB)' })
+
+    // Load template
+    const { data: tpl, error: lErr } = await supabase
+      .from('templates').select('id, pages').eq('id', req.params.id).single()
+    if (lErr || !tpl) return res.status(404).json({ error: 'Template khong ton tai' })
+
+    const pages = { ...(tpl.pages || {}) }
+    if (!pages[filename]) {
+      return res.status(404).json({ error: `Page "${filename}" khong ton tai trong template` })
+    }
+
+    // Sanitize HTML giong /api/projects/:id/save-edits
+    const safeHtml = sanitizeUserHtml(html)
+    if (!safeHtml || safeHtml.length < 50) {
+      return res.status(400).json({ error: 'HTML sau khi loc qua ngan' })
+    }
+    pages[filename] = injectNavScript(safeHtml)
+
+    const { data: updated, error: uErr } = await supabase
+      .from('templates').update({ pages }).eq('id', req.params.id).select().single()
+    if (uErr) throw uErr
+
+    res.json({ success: true, template: updated })
+  } catch (err) {
+    console.error('[admin-template-save-edits]', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 
 // ─── TEMPLATES endpoints (v0.6) ───────────────────────────────────────
 // GET /api/templates — list all templates

@@ -12,8 +12,8 @@
 //    `npm run seed-templates` de re-generate, hoac dung API trong tuong lai.
 // ========================================================================
 
-import { useState, useEffect, useCallback } from 'react'
-import { apiGet, apiPatch, apiDelete } from '../lib/api'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { apiGet, apiPatch, apiDelete, apiPost } from '../lib/api'
 
 const CATEGORY_OPTIONS = [
   { value: 'fnb',       label: 'F&B' },
@@ -27,7 +27,9 @@ export default function AdminPanel({ onBack, showToast }) {
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [editing, setEditing] = useState(null)        // template hien tai dang sua trong modal
+  const [editing, setEditing] = useState(null)        // template dang sua metadata
+  const [editingContent, setEditingContent] = useState(null) // template dang sua HTML
+  const [creating, setCreating] = useState(false)     // mo NewTemplateModal
   const [busyId, setBusyId] = useState(null)          // template_id dang lam action
   const [filter, setFilter] = useState('all')
 
@@ -93,10 +95,16 @@ export default function AdminPanel({ onBack, showToast }) {
             <p className="text-xs text-ink-500">Quan ly thu vien template cho user clone</p>
           </div>
         </div>
-        <button onClick={load} disabled={loading}
-          className="text-xs px-3 py-1.5 rounded-lg bg-ink-100 hover:bg-ink-200 disabled:opacity-50">
-          {loading ? '...' : 'Refresh'}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setCreating(true)} disabled={loading}
+            className="text-xs px-3 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-semibold shadow-soft disabled:opacity-50">
+            + New template
+          </button>
+          <button onClick={load} disabled={loading}
+            className="text-xs px-3 py-1.5 rounded-lg bg-ink-100 hover:bg-ink-200 disabled:opacity-50">
+            {loading ? '...' : 'Refresh'}
+          </button>
+        </div>
       </header>
 
       <div className="max-w-6xl mx-auto p-6">
@@ -118,9 +126,9 @@ export default function AdminPanel({ onBack, showToast }) {
           </div>
         </div>
 
-        {/* ─── Hint about creating new templates ─────────────────── */}
+        {/* ─── Hint ────────────────────────────────────────────── */}
         <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-900">
-          <strong>Them template moi:</strong> chay <code className="bg-white px-1.5 py-0.5 rounded font-mono">npm run seed-templates</code> tren server (idempotent — chay nhieu lan khong duplicate). UI nay chi cho phep sua metadata + xoa template hien co.
+          <strong>Tao template moi:</strong> click <strong>"+ New template"</strong> → nhap prompt → AI generate (~10-30s, ton ~$0.05-0.20). <strong>Sua noi dung text:</strong> click <strong>"Sua HTML"</strong> tren tung row → inline edit nhu user. <strong>Bulk seed:</strong> van co the chay <code className="bg-white px-1 py-0.5 rounded font-mono">npm run seed-templates</code>.
         </div>
 
         {/* ─── List / loading / error ─────────────────────────────── */}
@@ -191,10 +199,14 @@ export default function AdminPanel({ onBack, showToast }) {
                           {t.is_featured ? '⭐ ON' : 'OFF'}
                         </button>
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <button onClick={() => setEditingContent(t)} disabled={isBusy}
+                          className="text-xs px-2 py-1 rounded text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
+                          Sua HTML
+                        </button>
                         <button onClick={() => setEditing(t)} disabled={isBusy}
-                          className="text-xs px-2 py-1 rounded text-brand-600 hover:bg-brand-50 disabled:opacity-50">
-                          Sua
+                          className="text-xs px-2 py-1 rounded text-brand-600 hover:bg-brand-50 disabled:opacity-50 ml-1">
+                          Metadata
                         </button>
                         <button onClick={() => deleteTemplate(t)} disabled={isBusy}
                           className="text-xs px-2 py-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-50 ml-1">
@@ -215,6 +227,23 @@ export default function AdminPanel({ onBack, showToast }) {
           template={editing}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load() }}
+          showToast={showToast}
+        />
+      )}
+
+      {creating && (
+        <NewTemplateModal
+          onClose={() => setCreating(false)}
+          onCreated={() => { setCreating(false); load() }}
+          showToast={showToast}
+        />
+      )}
+
+      {editingContent && (
+        <AdminTemplateEditor
+          templateId={editingContent.id}
+          templateName={editingContent.name}
+          onClose={() => setEditingContent(null)}
           showToast={showToast}
         />
       )}
@@ -371,6 +400,305 @@ function Field({ label, children, full }) {
         {label}
       </label>
       {children}
+    </div>
+  )
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+//  NEW TEMPLATE MODAL — admin nhap prompt → AI generate → save
+// ════════════════════════════════════════════════════════════════════════
+function NewTemplateModal({ onClose, onCreated, showToast }) {
+  const [form, setForm] = useState({
+    slug:           '',
+    name:           '',
+    description:    '',
+    category:       'other',
+    industry_label: '',
+    emoji:          '✨',
+    color_from:     '#3b5cf5',
+    color_to:       '#2a40e6',
+    default_prompt: '',
+    display_order:  100,
+    is_featured:    false
+  })
+  const [generating, setGenerating] = useState(false)
+
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
+
+  // Auto-suggest slug khi user go name
+  function setName(v) {
+    set('name', v)
+    if (!form.slug) {
+      const auto = v.toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+        .slice(0, 40)
+      set('slug', auto)
+    }
+  }
+
+  async function handleGenerate(e) {
+    e.preventDefault()
+    if (form.default_prompt.trim().length < 20) {
+      showToast?.('Prompt phai >= 20 ky tu', 'error'); return
+    }
+    setGenerating(true)
+    try {
+      const result = await apiPost('/api/admin/templates/generate', form)
+      showToast?.(`Tao xong! ${result.pageCount} pages, ${result.tokens} tokens`, 'success')
+      onCreated?.()
+    } catch (err) {
+      showToast?.('Loi tao: ' + err.message, 'error')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <form onClick={e => e.stopPropagation()} onSubmit={handleGenerate}
+        className="bg-white rounded-2xl shadow-card max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="px-5 py-3 border-b border-ink-200 sticky top-0 bg-white z-10">
+          <h2 className="text-base font-bold">Tao template moi</h2>
+          <p className="text-xs text-ink-500 mt-0.5">AI se generate HTML, ~10-30s. Ton ~$0.05-$0.20 / lan.</p>
+        </div>
+
+        <div className="p-5 grid grid-cols-2 gap-4">
+          <Field label="Slug (a-z 0-9 -)">
+            <input required value={form.slug} onChange={e => set('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+              className="input font-mono text-xs" maxLength={50} placeholder="fnb-cafe-shop" />
+          </Field>
+
+          <Field label="Ten template">
+            <input required value={form.name} onChange={e => setName(e.target.value)}
+              className="input" maxLength={100} placeholder="Quan ca phe" />
+          </Field>
+
+          <Field label="Mo ta" full>
+            <textarea value={form.description} onChange={e => set('description', e.target.value)}
+              rows={2} maxLength={500} className="input resize-none"
+              placeholder="Landing page chuyen nghiep cho quan ca phe — menu, khong gian, dat ban" />
+          </Field>
+
+          <Field label="Category">
+            <select value={form.category} onChange={e => set('category', e.target.value)} className="input">
+              {CATEGORY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Industry label">
+            <input value={form.industry_label} onChange={e => set('industry_label', e.target.value)}
+              className="input" placeholder="F&B / Ca phe" />
+          </Field>
+
+          <Field label="Emoji">
+            <input value={form.emoji} onChange={e => set('emoji', e.target.value)} maxLength={4}
+              className="input text-2xl text-center" />
+          </Field>
+
+          <Field label="Display order">
+            <input type="number" min="0" max="9999" value={form.display_order}
+              onChange={e => set('display_order', parseInt(e.target.value) || 0)} className="input" />
+          </Field>
+
+          <Field label="Color from">
+            <input type="color" value={form.color_from} onChange={e => set('color_from', e.target.value)}
+              className="w-full h-9 rounded border border-ink-200" />
+          </Field>
+
+          <Field label="Color to">
+            <input type="color" value={form.color_to} onChange={e => set('color_to', e.target.value)}
+              className="w-full h-9 rounded border border-ink-200" />
+          </Field>
+
+          <Field label="Default prompt (AI dung de generate)" full>
+            <textarea required value={form.default_prompt}
+              onChange={e => set('default_prompt', e.target.value)}
+              rows={8} className="input resize-y font-mono text-xs"
+              placeholder={'Tao website 4 trang cho quan ca phe "Cafe An Nhien"...\n- index.html: hero + slogan + CTA\n- menu.html: danh sach do uong\n- ...'} />
+            <p className="text-[10px] text-ink-500 mt-1">{form.default_prompt.length} ky tu (min 20)</p>
+          </Field>
+
+          <Field label=" " full>
+            <label className="flex items-center gap-2 text-sm text-ink-700">
+              <input type="checkbox" checked={form.is_featured}
+                onChange={e => set('is_featured', e.target.checked)} className="w-4 h-4" />
+              Featured (hien o dau danh sach)
+            </label>
+          </Field>
+        </div>
+
+        <div className="px-5 py-3 border-t border-ink-200 sticky bottom-0 bg-white flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={generating}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-ink-600 hover:bg-ink-100 disabled:opacity-50">
+            Huy
+          </button>
+          <button type="submit" disabled={generating}
+            className="px-4 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 disabled:bg-ink-300 text-white text-sm font-semibold flex items-center gap-2">
+            {generating && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>}
+            {generating ? 'AI dang generate...' : 'Generate + Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
+//  ADMIN TEMPLATE EDITOR — full-screen iframe + inline edit cho HTML pages
+// ════════════════════════════════════════════════════════════════════════
+function AdminTemplateEditor({ templateId, templateName, onClose, showToast }) {
+  const [template, setTemplate] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [currentPath, setCurrentPath] = useState('index.html')
+  const [editMode, setEditMode] = useState(false)
+  const [editDirty, setEditDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const iframeRef = useRef(null)
+
+  useEffect(() => {
+    apiGet(`/api/admin/templates/${templateId}`)
+      .then(d => {
+        setTemplate(d)
+        const paths = Object.keys(d.pages || {})
+        if (paths.length) setCurrentPath(paths.includes('index.html') ? 'index.html' : paths[0])
+      })
+      .catch(err => showToast?.('Loi load: ' + err.message, 'error'))
+      .finally(() => setLoading(false))
+  }, [templateId])
+
+  // Reset edit mode khi doi page
+  useEffect(() => { setEditMode(false); setEditDirty(false) }, [currentPath])
+
+  // Listen message tu iframe (giong Preview.jsx)
+  useEffect(() => {
+    function handler(e) {
+      const d = e.data || {}
+      if (d.type === 'daisan:editModeReady') {
+        showToast?.(`Edit mode bat: ${d.editableCount} text`, 'info')
+      }
+      if (d.type === 'daisan:dirty') setEditDirty(true)
+      if (d.type === 'daisan:cleanHtml') saveCleanHtml(d.html)
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, currentPath])
+
+  function toggleEdit() {
+    if (!iframeRef.current?.contentWindow) return
+    const next = !editMode
+    iframeRef.current.contentWindow.postMessage({ type: 'daisan:setEditMode', enabled: next }, '*')
+    setEditMode(next)
+    if (!next) setEditDirty(false)
+  }
+
+  function requestSave() {
+    if (!iframeRef.current?.contentWindow) return
+    setSaving(true)
+    iframeRef.current.contentWindow.postMessage({ type: 'daisan:requestCleanHtml' }, '*')
+  }
+
+  async function saveCleanHtml(html) {
+    try {
+      await apiPost(`/api/admin/templates/${templateId}/save-edits`, { filename: currentPath, html })
+      showToast?.('Da luu', 'success')
+      setEditMode(false); setEditDirty(false)
+      // Reload template (du lieu pages thay doi sau khi server inject lai script)
+      const fresh = await apiGet(`/api/admin/templates/${templateId}`)
+      setTemplate(fresh)
+    } catch (err) {
+      showToast?.('Loi luu: ' + err.message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-50 bg-ink-50 flex items-center justify-center">
+        <div className="w-10 h-10 border-3 border-brand-200 border-t-brand-500 rounded-full animate-spin"></div>
+      </div>
+    )
+  }
+
+  const pages = template?.pages || {}
+  const pagePaths = Object.keys(pages)
+  const currentHtml = pages[currentPath] || ''
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      {/* Header */}
+      <div className="px-4 py-2 border-b border-ink-200 flex items-center justify-between bg-white flex-shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={onClose} className="text-sm text-ink-500 hover:text-ink-900 flex items-center gap-1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+            </svg>
+            Dong
+          </button>
+          <div className="w-px h-6 bg-ink-200"></div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-ink-900 truncate">Sua HTML: {templateName}</div>
+            <div className="text-[10px] text-ink-500 font-mono truncate">{pagePaths.length} pages</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {!editMode ? (
+            <button onClick={toggleEdit}
+              className="px-3 py-1.5 text-xs rounded-lg bg-brand-50 hover:bg-brand-100 text-brand-700 font-semibold border border-brand-200">
+              Bat edit mode
+            </button>
+          ) : (
+            <>
+              <span className="px-2 py-1 text-[11px] rounded bg-brand-50 text-brand-700 border border-brand-200 font-semibold">
+                {editDirty ? 'Co thay doi' : 'Edit mode'}
+              </span>
+              <button onClick={requestSave} disabled={!editDirty || saving}
+                className="px-3 py-1.5 text-xs rounded-lg bg-green-500 hover:bg-green-600 disabled:bg-ink-300 text-white font-semibold">
+                {saving ? 'Dang luu...' : 'Luu'}
+              </button>
+              <button onClick={() => { setEditMode(false); setEditDirty(false); toggleEdit() }} disabled={saving}
+                className="px-3 py-1.5 text-xs rounded-lg text-red-600 hover:bg-red-50">
+                Huy
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Page tabs */}
+      {pagePaths.length > 0 && (
+        <div className="bg-ink-50 border-b border-ink-200 px-3 py-1.5 flex items-center gap-1 overflow-x-auto flex-shrink-0">
+          {pagePaths.map(p => (
+            <button key={p} onClick={() => setCurrentPath(p)}
+              className={`px-3 py-1.5 rounded-md text-[11px] font-medium whitespace-nowrap ${
+                p === currentPath
+                  ? 'bg-white text-ink-900 shadow-soft border border-ink-200'
+                  : 'text-ink-500 hover:bg-white/50'
+              }`}>
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Iframe */}
+      <div className="flex-1 bg-ink-100 overflow-auto p-4">
+        <iframe
+          ref={iframeRef}
+          key={currentPath + templateId}
+          srcDoc={currentHtml}
+          title={`Edit ${currentPath}`}
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          className="w-full h-full bg-white shadow-card rounded-lg"
+          style={{ minHeight: '600px' }}
+        />
+      </div>
     </div>
   )
 }

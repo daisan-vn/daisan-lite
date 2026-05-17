@@ -65,18 +65,22 @@ Neu van bi 403:
 ## Chuc nang Admin Panel hien tai (v0.12)
 
 - ✅ Liet ke tat ca templates (loc theo category)
+- ✅ **Tao template moi** qua AI (nhap prompt → generate ~10-30s, ton ~$0.05-$0.20)
 - ✅ Sua metadata: name, description, category, emoji, colors, default_prompt, display_order, is_featured
+- ✅ **Sua HTML content** inline cho moi page (giong inline edit cua user)
 - ✅ Toggle featured nhanh tu list
 - ✅ Xoa template
-- ❌ Tao template moi qua UI → dung `npm run seed-templates`
-- ❌ Sua HTML content (pages) → dung seed-templates script
+- 🔄 Bulk seed: van co the chay `npm run seed-templates` (idempotent, khong duplicate slug)
 
 ## API endpoints (cho dev tham khao)
 
 | Endpoint | Auth | Mo ta |
 |---|---|---|
-| `GET /api/admin/check` | requireAuth | Tra ve `{is_admin: bool}` cho ca admin va non-admin |
-| `GET /api/admin/templates` | requireAuth + requireAdmin | List full templates (khong kem pages content) |
+| `GET /api/admin/check` | requireAuth | Tra ve `{is_admin: bool}` |
+| `GET /api/admin/templates` | requireAuth + requireAdmin | List metadata (khong kem pages content) |
+| `GET /api/admin/templates/:id` | requireAuth + requireAdmin | Full template (co pages content) |
+| `POST /api/admin/templates/generate` | requireAuth + requireAdmin | AI generate template moi |
+| `POST /api/admin/templates/:id/save-edits` | requireAuth + requireAdmin | Sanitize + save HTML 1 page |
 | `PATCH /api/admin/templates/:id` | requireAuth + requireAdmin | Sua metadata (allowlist field) |
 | `DELETE /api/admin/templates/:id` | requireAuth + requireAdmin | Xoa hoan toan |
 
