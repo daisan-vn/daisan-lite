@@ -7,16 +7,18 @@
 
 import { useState, useEffect } from 'react'
 import { apiGet, apiPost } from '../lib/api'
+import { useT } from '../hooks/useLanguage'
 
 const CATEGORIES = [
-  { key: 'all',       label: 'Tat ca',     emoji: '✨' },
-  { key: 'fnb',       label: 'F&B',        emoji: '☕' },
-  { key: 'fashion',   label: 'Thoi trang', emoji: '👗' },
-  { key: 'service',   label: 'Dich vu',    emoji: '🔧' },
-  { key: 'education', label: 'Giao duc',   emoji: '📚' }
+  { key: 'all',       i18nKey: 'templates.filterAll',       emoji: '✨' },
+  { key: 'fnb',       i18nKey: 'templates.filterFnB',       emoji: '☕' },
+  { key: 'fashion',   i18nKey: 'templates.filterFashion',   emoji: '👗' },
+  { key: 'service',   i18nKey: 'templates.filterService',   emoji: '🔧' },
+  { key: 'education', i18nKey: 'templates.filterEducation', emoji: '📚' }
 ]
 
 export default function TemplatesGrid({ onCloned, showToast }) {
+  const t = useT()
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState('all')
@@ -107,9 +109,9 @@ export default function TemplatesGrid({ onCloned, showToast }) {
         {/* Header */}
         <div className="text-center mb-6">
           <div className="text-3xl mb-2">🎨</div>
-          <h2 className="text-2xl font-bold text-ink-900">Bat dau voi template</h2>
+          <h2 className="text-2xl font-bold text-ink-900">{t('templates.title')}</h2>
           <p className="text-sm text-ink-500 mt-1">
-            Chon template ngành cua ban — clone xong la co web ngay, sau do iterate de cu the hon
+            {t('templates.subtitle')}
           </p>
         </div>
 
@@ -118,7 +120,7 @@ export default function TemplatesGrid({ onCloned, showToast }) {
           {CATEGORIES.map(cat => {
             const count = cat.key === 'all'
               ? templates.length
-              : templates.filter(t => t.category === cat.key).length
+              : templates.filter(tpl => tpl.category === cat.key).length
             const isActive = category === cat.key
             return (
               <button
@@ -131,7 +133,7 @@ export default function TemplatesGrid({ onCloned, showToast }) {
                 }`}
               >
                 <span>{cat.emoji}</span>
-                <span>{cat.label}</span>
+                <span>{t(cat.i18nKey)}</span>
                 <span className={`text-[10px] ${isActive ? 'text-white/70' : 'text-ink-400'}`}>
                   {count}
                 </span>
@@ -144,70 +146,70 @@ export default function TemplatesGrid({ onCloned, showToast }) {
         {filtered.length === 0 ? (
           <div className="text-center py-12 text-ink-400">
             <div className="text-2xl mb-2">🔍</div>
-            <p className="text-sm">Khong co template trong category nay</p>
+            <p className="text-sm">{t('templates.empty')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filtered.map(t => {
-              const isCloning = cloningId === t.id
-              const pageCount = t.navigation?.length || 0
+            {filtered.map(tpl => {
+              const isCloning = cloningId === tpl.id
+              const pageCount = tpl.navigation?.length || 0
               return (
                 <div
-                  key={t.id}
+                  key={tpl.id}
                   className="group bg-white rounded-xl border border-ink-200 hover:border-ink-300 hover:shadow-card transition overflow-hidden flex flex-col"
                 >
                   {/* Visual top */}
                   <div
                     className="aspect-[16/9] relative flex items-center justify-center overflow-hidden"
                     style={{
-                      background: `linear-gradient(135deg, ${t.color_from} 0%, ${t.color_to} 100%)`
+                      background: `linear-gradient(135deg, ${tpl.color_from} 0%, ${tpl.color_to} 100%)`
                     }}
                   >
-                    <span className="text-6xl drop-shadow-md">{t.emoji}</span>
+                    <span className="text-6xl drop-shadow-md">{tpl.emoji}</span>
 
                     {/* Featured badge */}
-                    {t.is_featured && (
+                    {tpl.is_featured && (
                       <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur text-[10px] font-semibold text-ink-700">
-                        ⭐ Featured
+                        ⭐ {t('templates.featured')}
                       </span>
                     )}
 
                     {/* Page count badge */}
                     <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded-full bg-black/30 backdrop-blur text-[10px] font-medium text-white">
-                      {pageCount} trang
+                      {pageCount} {t('templates.pagesCount')}
                     </span>
                   </div>
 
                   {/* Info */}
                   <div className="p-3 flex-1 flex flex-col">
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="text-sm font-semibold text-ink-900 leading-tight">{t.name}</h3>
-                      {t.uses_count > 0 && (
+                      <h3 className="text-sm font-semibold text-ink-900 leading-tight">{tpl.name}</h3>
+                      {tpl.uses_count > 0 && (
                         <span className="text-[10px] text-ink-400 flex-shrink-0 mt-0.5">
-                          {t.uses_count}× clone
+                          {tpl.uses_count}× {t('templates.usesCount')}
                         </span>
                       )}
                     </div>
                     <p className="text-[11px] text-ink-500 leading-relaxed line-clamp-2 flex-1">
-                      {t.description}
+                      {tpl.description}
                     </p>
 
                     <div className="flex items-center justify-between gap-2 mt-3">
                       <span className="text-[10px] text-ink-400 truncate">
-                        {t.industry_label}
+                        {tpl.industry_label}
                       </span>
                       <button
-                        onClick={() => handleClone(t)}
+                        onClick={() => handleClone(tpl)}
                         disabled={isCloning || cloningId !== null}
                         className="px-3 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-600 disabled:bg-ink-300 disabled:cursor-not-allowed text-white text-[11px] font-semibold transition flex items-center gap-1.5 shadow-soft flex-shrink-0"
                       >
                         {isCloning ? (
                           <>
                             <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                            Cloning
+                            {t('templates.cloning')}
                           </>
                         ) : (
-                          <>Su dung →</>
+                          <>{t('templates.cloneButton')} →</>
                         )}
                       </button>
                     </div>

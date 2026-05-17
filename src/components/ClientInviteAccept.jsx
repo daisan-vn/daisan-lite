@@ -15,8 +15,11 @@ import { useEffect, useState } from 'react'
 import { apiPost } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useT } from '../hooks/useLanguage'
+import LanguageToggle from './LanguageToggle'
 
 export default function ClientInviteAccept() {
+  const t = useT()
   const { user, loading: authLoading } = useAuth()
   const [token, setToken] = useState('')
   const [inviteInfo, setInviteInfo] = useState(null)
@@ -97,9 +100,9 @@ export default function ClientInviteAccept() {
       <CenterCard>
         <div className="text-center">
           <div className="text-5xl mb-3">⚠️</div>
-          <h1 className="text-xl font-bold text-ink-900 mb-2">Link khong hop le</h1>
+          <h1 className="text-xl font-bold text-ink-900 mb-2">{t('clientAccept.invalidTitle')}</h1>
           <p className="text-sm text-ink-600 mb-4">{error}</p>
-          <a href="/" className="text-sm text-brand-600 hover:underline">← Ve trang chu</a>
+          <a href="/" className="text-sm text-brand-600 hover:underline">{t('clientAccept.backHome')}</a>
         </div>
       </CenterCard>
     )
@@ -110,61 +113,59 @@ export default function ClientInviteAccept() {
       <CenterCard>
         <div className="text-center">
           <div className="w-10 h-10 mx-auto mb-3 border-3 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-sm text-ink-600">Dang xac nhan...</p>
+          <p className="text-sm text-ink-600">{t('clientAccept.verifying')}</p>
         </div>
       </CenterCard>
     )
   }
 
   if (user && inviteInfo) {
-    // User logged in but accept hasnt fired yet (race) or failed
     return (
       <CenterCard>
         <div className="text-center">
-          <h1 className="text-xl font-bold text-ink-900 mb-2">Sap xong!</h1>
+          <h1 className="text-xl font-bold text-ink-900 mb-2">{t('clientAccept.acceptingTitle')}</h1>
           <p className="text-sm text-ink-600 mb-4">
-            Ban dang nhap voi <strong>{user.email}</strong>
+            {t('clientAccept.acceptingDesc')} <strong>{user.email}</strong>
           </p>
           {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
           <button
             onClick={handleAccept}
             className="px-6 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold"
           >
-            Vao project →
+            {t('clientAccept.enterProject')}
           </button>
         </div>
       </CenterCard>
     )
   }
 
-  // ─── User CHUA dang nhap — hien magic link form ──────────────────────
   return (
     <CenterCard>
       <div className="text-center mb-5">
         <div className="text-4xl mb-2">📩</div>
         <h1 className="text-xl font-bold text-ink-900">
-          Ban duoc moi sua website
+          {t('clientAccept.title')}
         </h1>
         <p className="text-sm text-ink-600 mt-1">
-          Project: <strong>{inviteInfo?.projectName}</strong>
+          {t('clientAccept.project')} <strong>{inviteInfo?.projectName}</strong>
         </p>
       </div>
 
       {magicLinkSent ? (
         <div className="text-center">
           <div className="text-3xl mb-2">✉️</div>
-          <h2 className="font-semibold text-ink-900 mb-1">Da gui link dang nhap</h2>
+          <h2 className="font-semibold text-ink-900 mb-1">{t('clientAccept.magicLinkSent')}</h2>
           <p className="text-sm text-ink-600 mb-3">
-            Kiem tra email <strong>{inviteInfo.clientEmail}</strong>, click link de tiep tuc.
+            {t('clientAccept.magicLinkDesc')} <strong>{inviteInfo.clientEmail}</strong>
           </p>
           <p className="text-xs text-ink-500">
-            Khong thay email? Check Spam/Quang cao folder.
+            {t('clientAccept.checkSpam')}
           </p>
         </div>
       ) : (
         <form onSubmit={handleMagicLink}>
           <label className="block text-xs uppercase tracking-wide text-ink-500 font-semibold mb-2">
-            Email da duoc moi
+            {t('clientAccept.emailLabel')}
           </label>
           <input
             type="email"
@@ -173,28 +174,32 @@ export default function ClientInviteAccept() {
             className="w-full px-3 py-2.5 rounded-lg border border-ink-300 bg-ink-50 text-sm text-ink-700"
           />
           <p className="text-xs text-ink-500 mt-2 mb-4">
-            ⚠️ Ban phai dang nhap dung email nay. Khong the dung email khac.
+            {t('clientAccept.emailHint')}
           </p>
           {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
           <button
             type="submit"
             className="w-full px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold"
           >
-            Gui link dang nhap →
+            {t('clientAccept.sendLink')}
           </button>
         </form>
       )}
 
       <div className="mt-5 pt-5 border-t border-ink-200 text-xs text-ink-500 text-center">
-        Powered by DaisanAI Lite
+        {t('clientAccept.poweredBy')}
       </div>
     </CenterCard>
   )
 }
 
 function CenterCard({ children }) {
+  const t = useT()
   return (
-    <div className="min-h-screen flex items-center justify-center bg-ink-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-ink-50 p-4 relative">
+      <div className="absolute top-4 right-4">
+        <LanguageToggle />
+      </div>
       <div className="bg-white rounded-2xl shadow-card max-w-md w-full p-6">
         <div className="flex items-center gap-2 mb-5">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold shadow-soft">
@@ -202,7 +207,7 @@ function CenterCard({ children }) {
           </div>
           <div>
             <h1 className="font-semibold text-sm">DaisanAI <span className="text-xs text-ink-400">Lite</span></h1>
-            <p className="text-[10px] text-ink-500">Client edit mode</p>
+            <p className="text-[10px] text-ink-500">{t('clientAccept.clientModeTag')}</p>
           </div>
         </div>
         {children}

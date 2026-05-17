@@ -1,18 +1,20 @@
 // ========================================================================
-//  Preview v0.9 — Multi-page + Publish + Templates + Inline Edit
+//  Preview v0.11 — Multi-page + Publish + Templates + Inline Edit + i18n
 // ========================================================================
 
 import { useState, useEffect, useRef } from 'react'
 import TemplatesGrid from './TemplatesGrid'
 import DomainSettings from './DomainSettings'
 import { apiPost } from '../lib/api'
+import { useT } from '../hooks/useLanguage'
 
 export default function Preview({
   current, streamText, isStreaming, streamMode,
   onPublish, onUnpublish, publishLoading,
   onTemplateCloned, showToast, onProjectUpdate,
-  isClient = false   // v0.10: client mode flag
+  isClient = false
 }) {
+  const t = useT()
   const [mode, setMode] = useState('preview')
   const [viewport, setViewport] = useState('desktop')
   const [currentPath, setCurrentPath] = useState('index.html')
@@ -147,9 +149,9 @@ export default function Preview({
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-sm">
             <div className="text-5xl mb-3">📋</div>
-            <h2 className="text-lg font-bold text-ink-900 mb-2">Chua co project nao</h2>
+            <h2 className="text-lg font-bold text-ink-900 mb-2">{t('preview.emptyClient')}</h2>
             <p className="text-sm text-ink-600">
-              Hay yeu cau chu DaisanAI gui link moi de bat dau edit web cua ban.
+              {t('preview.emptyClientHint')}
             </p>
           </div>
         </div>
@@ -256,7 +258,7 @@ export default function Preview({
 
         {mode === 'preview' && !isStreaming && (
           <div className="flex gap-0.5 p-0.5 bg-ink-100 rounded-lg">
-            {[['desktop','Desktop'],['tablet','Tablet'],['mobile','Mobile']].map(([k,l]) => (
+            {[['desktop', t('preview.viewportDesktop')],['tablet', t('preview.viewportTablet')],['mobile', t('preview.viewportMobile')]].map(([k,l]) => (
               <button key={k} onClick={() => setViewport(k)}
                 className={`px-2.5 py-1 text-[11px] font-medium rounded transition ${
                   viewport === k ? 'bg-white text-ink-900 shadow-soft' : 'text-ink-500 hover:text-ink-700'
@@ -269,46 +271,46 @@ export default function Preview({
           <div className="flex gap-1 items-center">
             {/* v0.9: Edit toggle */}
             {!editMode ? (
-              <button onClick={toggleEditMode} title="Sua text truc tiep (mien phi)"
+              <button onClick={toggleEditMode} title={t('preview.editText')}
                 className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-ink-700 hover:bg-brand-50 hover:text-brand-700 transition flex items-center gap-1.5 border border-ink-200">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
-                Sua text
+                {t('preview.editText')}
               </button>
             ) : (
               <>
                 <div className="flex items-center gap-1 px-2 py-1 bg-brand-50 border border-brand-300 rounded-lg text-[11px] text-brand-700 font-semibold">
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse"></span>
-                  Edit mode {editDirty && '(co thay doi)'}
+                  {editDirty ? t('preview.editModeDirty') : t('preview.editMode')}
                 </div>
                 <button onClick={saveEdits} disabled={editSaving || !editDirty}
                   className="px-2.5 py-1.5 text-[11px] font-semibold rounded-lg bg-green-500 hover:bg-green-600 text-white disabled:bg-ink-300 transition shadow-soft">
-                  {editSaving ? 'Dang luu...' : '✓ Luu'}
+                  {editSaving ? t('preview.saveLoading') : t('preview.save')}
                 </button>
                 <button onClick={cancelEdits} disabled={editSaving}
                   className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg text-red-600 hover:bg-red-50 transition">
-                  Huy
+                  {t('preview.cancel')}
                 </button>
               </>
             )}
 
-            <button onClick={openCurrentPageInNewTab} title="Mo trong tab moi" disabled={editMode}
+            <button onClick={openCurrentPageInNewTab} title={t('preview.openTitle')} disabled={editMode}
               className="px-2 py-1.5 text-[11px] font-medium rounded-lg text-ink-600 hover:bg-ink-100 transition flex items-center gap-1.5 disabled:opacity-40">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                 <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
               </svg>
-              Mo
+              {t('preview.openInNewTab')}
             </button>
-            <button onClick={downloadCurrentPage} title={`Tai ${currentPath}`} disabled={editMode}
+            <button onClick={downloadCurrentPage} title={`${t('preview.downloadTitle')} ${currentPath}`} disabled={editMode}
               className="px-2 py-1.5 text-[11px] font-medium rounded-lg text-ink-600 hover:bg-ink-100 transition flex items-center gap-1.5 disabled:opacity-40">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                 <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
-              Tai
+              {t('preview.download')}
             </button>
 
             {/* ─── PUBLISH BUTTON / POPOVER (owner only — v0.10) ────── */}
@@ -326,14 +328,14 @@ export default function Preview({
                 {publishLoading ? (
                   <>
                     <span className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin"></span>
-                    Publishing...
+                    {t('preview.publishing')}
                   </>
                 ) : isPublished ? (
                   <>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <polyline points="20 6 9 17 4 12"/>
                     </svg>
-                    Live
+                    {t('preview.published')}
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <polyline points="6 9 12 15 18 9"/>
                     </svg>
@@ -344,7 +346,7 @@ export default function Preview({
                       <line x1="12" y1="19" x2="12" y2="5"/>
                       <polyline points="5 12 12 5 19 12"/>
                     </svg>
-                    Publish
+                    {t('preview.publish')}
                   </>
                 )}
               </button>

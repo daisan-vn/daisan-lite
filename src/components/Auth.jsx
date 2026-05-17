@@ -8,8 +8,11 @@
 
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useT } from '../hooks/useLanguage'
+import LanguageToggle from './LanguageToggle'
 
 export default function Auth() {
+  const t = useT()
   const [mode, setMode] = useState('select')   // 'select' | 'email'
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
@@ -60,6 +63,11 @@ export default function Auth() {
         <div className="absolute bottom-[-15%] right-[-10%] w-[40rem] h-[40rem] rounded-full bg-gradient-to-tr from-brand-100 to-brand-300 blur-3xl"></div>
       </div>
 
+      {/* Language toggle - top right */}
+      <div className="absolute top-4 right-4 z-10">
+        <LanguageToggle />
+      </div>
+
       {/* Card */}
       <div className="relative w-full max-w-md bg-white rounded-2xl shadow-card border border-ink-100 p-8">
 
@@ -72,16 +80,16 @@ export default function Auth() {
             <h1 className="font-bold text-xl leading-tight">
               DaisanAI <span className="text-xs font-normal text-ink-400 ml-1">Lite</span>
             </h1>
-            <p className="text-xs text-ink-500">Tao web bang tieng Viet — sieu nhanh</p>
+            <p className="text-xs text-ink-500">{t('auth.tagline')}</p>
           </div>
         </div>
 
         {/* Tieu de */}
         <h2 className="text-2xl font-bold mb-1 text-ink-900">
-          Chao mung tro lai
+          {t('auth.title')}
         </h2>
         <p className="text-sm text-ink-500 mb-6">
-          Dang nhap de tiep tuc voi cac project cua ban
+          {t('auth.subtitle')}
         </p>
 
         {/* Email sent state */}
@@ -92,16 +100,16 @@ export default function Auth() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
             </div>
-            <h3 className="font-semibold text-ink-900 mb-1">Kiem tra email cua ban</h3>
+            <h3 className="font-semibold text-ink-900 mb-1">{t('auth.checkEmail')}</h3>
             <p className="text-sm text-ink-500 mb-4">
-              Da gui link dang nhap toi<br />
+              {t('auth.magicLinkSent')}<br />
               <strong className="text-ink-700">{email}</strong>
             </p>
             <button
               onClick={() => { setEmailSent(false); setEmail(''); setMode('select') }}
               className="text-sm text-brand-600 hover:text-brand-700 font-medium"
             >
-              ← Dung email khac
+              {t('auth.back')}
             </button>
           </div>
         ) : mode === 'select' ? (
@@ -118,12 +126,12 @@ export default function Auth() {
                 <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
                 <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
               </svg>
-              {loading ? 'Dang chuyen huong...' : 'Tiep tuc voi Google'}
+              {loading ? t('common.loading') : t('auth.continueWithGoogle')}
             </button>
 
             <div className="flex items-center gap-3 my-5">
               <div className="flex-1 h-px bg-ink-200"></div>
-              <span className="text-xs text-ink-400 uppercase tracking-wider">hoac</span>
+              <span className="text-xs text-ink-400 uppercase tracking-wider">{t('auth.orDivider')}</span>
               <div className="flex-1 h-px bg-ink-200"></div>
             </div>
 
@@ -132,7 +140,7 @@ export default function Auth() {
               onClick={() => setMode('email')}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-ink-100 hover:bg-ink-200 transition font-medium text-ink-700 text-sm"
             >
-              ✉️  Dang nhap qua email (magic link)
+              ✉️  {t('auth.sendMagicLink')}
             </button>
           </>
         ) : (
@@ -142,11 +150,11 @@ export default function Auth() {
               onClick={() => setMode('select')}
               className="text-xs text-ink-500 hover:text-ink-700 mb-3 inline-flex items-center gap-1"
             >
-              ← Quay lai
+              {t('auth.back')}
             </button>
 
             <label className="text-xs font-semibold text-ink-600 uppercase tracking-wider">
-              Email cua ban
+              {t('auth.emailLabel')}
             </label>
             <input
               type="email"
@@ -154,7 +162,7 @@ export default function Auth() {
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="ban@vidu.com"
+              placeholder={t('auth.emailPlaceholder')}
               className="mt-1.5 w-full px-3 py-2.5 rounded-xl border border-ink-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 outline-none text-sm transition"
               disabled={loading}
             />
@@ -164,11 +172,11 @@ export default function Auth() {
               disabled={loading || !email.trim()}
               className="mt-4 w-full px-4 py-3 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:bg-ink-200 disabled:text-ink-400 disabled:cursor-not-allowed text-white font-semibold transition shadow-soft"
             >
-              {loading ? 'Dang gui...' : 'Gui link dang nhap'}
+              {loading ? t('auth.sendingMagicLink') : t('auth.sendMagicLink')}
             </button>
 
             <p className="mt-3 text-[11px] text-ink-400 text-center">
-              Chung toi se gui link bao mat den email cua ban — khong can mat khau.
+              {t('auth.bottomNote')}
             </p>
           </form>
         )}
@@ -176,19 +184,19 @@ export default function Auth() {
         {/* Error */}
         {error && (
           <div className="mt-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
-            <strong>Loi:</strong> {error}
+            <strong>{t('common.error')}:</strong> {error}
           </div>
         )}
 
         {/* Footer */}
         <p className="mt-6 text-[11px] text-center text-ink-400">
-          Bang viec dang nhap, ban dong y voi Dieu khoan & Chinh sach bao mat.
+          {t('auth.terms')}
         </p>
       </div>
 
       {/* Help text duoi cung */}
       <div className="absolute bottom-4 left-0 right-0 text-center text-[11px] text-ink-400">
-        DaisanAI Lite v0.3 — Auth bang Supabase
+        DaisanAI Lite v0.11 — i18n VI/EN
       </div>
     </div>
   )

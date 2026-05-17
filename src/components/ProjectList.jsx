@@ -1,19 +1,21 @@
-// ProjectList v0.2 — co delete + rename, hover de hien action
+// ProjectList v0.2 — co delete + rename, hover de hien action. v0.11 i18n
 import { useState } from 'react'
+import { useT } from '../hooks/useLanguage'
 
 export default function ProjectList({
   projects, currentId, onSelect, onDelete, onRename, disabled
 }) {
+  const t = useT()
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
 
   function timeAgo(iso) {
     if (!iso) return ''
     const s = (Date.now() - new Date(iso).getTime()) / 1000
-    if (s < 60)    return 'Vua xong'
-    if (s < 3600)  return `${Math.floor(s/60)} phut truoc`
-    if (s < 86400) return `${Math.floor(s/3600)} gio truoc`
-    return `${Math.floor(s/86400)} ngay truoc`
+    if (s < 60)    return t('projects.timeJustNow')
+    if (s < 3600)  return `${Math.floor(s/60)} ${t('projects.timeMinuteAgo')}`
+    if (s < 86400) return `${Math.floor(s/3600)} ${t('projects.timeHourAgo')}`
+    return `${Math.floor(s/86400)} ${t('projects.timeDayAgo')}`
   }
 
   function startEdit(p, e) {
@@ -33,15 +35,15 @@ export default function ProjectList({
     <div className="flex-1 overflow-y-auto px-3 py-3">
       <div className="flex items-center justify-between mb-2 px-1">
         <h3 className="text-[10px] font-semibold text-ink-500 uppercase tracking-wider">
-          Project ({projects.length})
+          {t('projects.title')} ({projects.length})
         </h3>
       </div>
 
       {projects.length === 0 ? (
         <div className="text-center py-12 text-sm text-ink-400">
           <div className="text-3xl mb-2 opacity-50">📄</div>
-          <div className="text-xs">Chua co project nao</div>
-          <div className="text-[11px] mt-1 text-ink-300">Nhap mo ta o tren de bat dau</div>
+          <div className="text-xs">{t('projects.empty')}</div>
+          <div className="text-[11px] mt-1 text-ink-300">{t('projects.emptyHint')}</div>
         </div>
       ) : (
         <div className="space-y-1">
@@ -93,7 +95,7 @@ export default function ProjectList({
                     <button
                       onClick={(e) => startEdit(p, e)}
                       disabled={disabled}
-                      title="Doi ten"
+                      title={t('projects.rename')}
                       className="w-6 h-6 rounded flex items-center justify-center text-ink-500 hover:bg-white hover:text-brand-600 transition"
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -104,7 +106,7 @@ export default function ProjectList({
                     <button
                       onClick={(e) => { e.stopPropagation(); onDelete(p.id) }}
                       disabled={disabled}
-                      title="Xoa"
+                      title={t('projects.delete')}
                       className="w-6 h-6 rounded flex items-center justify-center text-ink-500 hover:bg-white hover:text-red-600 transition"
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

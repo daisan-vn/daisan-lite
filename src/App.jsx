@@ -20,7 +20,9 @@ import BillingPage from './components/BillingPage'
 import PaymentReturn from './components/PaymentReturn'
 import ClientInviteAccept from './components/ClientInviteAccept'
 import InviteClientModal from './components/InviteClientModal'
+import LanguageToggle from './components/LanguageToggle'
 import { useAuth } from './hooks/useAuth'
+import { useT } from './hooks/useLanguage'
 import { apiGet, apiDelete, apiPatch, apiPost, apiPostStream } from './lib/api'
 
 export default function App() {
@@ -46,11 +48,12 @@ export default function App() {
 }
 
 function SplashScreen() {
+  const t = useT()
   return (
     <div className="min-h-screen flex items-center justify-center bg-ink-50">
       <div className="text-center">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-bold text-lg shadow-soft mx-auto mb-3 animate-pulse-slow">D</div>
-        <p className="text-sm text-ink-500">Dang tai...</p>
+        <p className="text-sm text-ink-500">{t('common.loading')}</p>
       </div>
     </div>
   )
@@ -61,6 +64,7 @@ function SplashScreen() {
 // ════════════════════════════════════════════════════════════════════════
 
 function MainApp({ user, onSignOut }) {
+  const t = useT()
   const [current, setCurrent] = useState(null)
   const [streamText, setStreamText] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -280,13 +284,13 @@ function MainApp({ user, onSignOut }) {
               {isClient && <span className="text-[10px] font-normal text-amber-600 ml-1.5 px-1.5 py-0.5 bg-amber-100 rounded">CLIENT</span>}
             </h1>
             <p className="text-[11px] text-ink-500 leading-tight">
-              {isClient ? 'Edit mode — chi sua text' : 'Tao web bang tieng Viet'}
+              {isClient ? t('header.clientMode') : t('header.tagline')}
             </p>
           </div>
         </button>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-ink-400 font-mono">v0.10</span>
+          <span className="text-[11px] text-ink-400 font-mono">v0.11</span>
 
           {/* Owner-only: Invite client button */}
           {!isClient && current && (
@@ -294,9 +298,9 @@ function MainApp({ user, onSignOut }) {
               onClick={() => setShowInviteModal(true)}
               disabled={isStreaming}
               className="text-xs px-3 py-1.5 rounded-lg bg-ink-100 hover:bg-ink-200 text-ink-700 font-medium transition disabled:opacity-50"
-              title="Moi khach hang vao edit"
+              title={t('header.inviteClient')}
             >
-              👥 Khach hang
+              {t('header.inviteClient')}
             </button>
           )}
 
@@ -307,10 +311,11 @@ function MainApp({ user, onSignOut }) {
               disabled={isStreaming}
               className="text-xs px-3 py-1.5 rounded-lg bg-ink-100 hover:bg-ink-200 text-ink-700 font-medium transition disabled:opacity-50"
             >
-              + Project moi
+              {t('header.newProject')}
             </button>
           )}
           <div className="w-px h-6 bg-ink-200 mx-1"></div>
+          <LanguageToggle />
           <UserMenu
             user={user}
             onSignOut={onSignOut}
@@ -350,32 +355,32 @@ function MainApp({ user, onSignOut }) {
         {isClient && current && (
           <aside className="w-[280px] border-r border-ink-200 bg-white flex flex-col p-5">
             <div className="text-xs uppercase tracking-wide text-ink-500 font-semibold mb-2">
-              Ban dang sua
+              {t('clientSidebar.youAreEditing')}
             </div>
             <h2 className="font-bold text-ink-900 mb-1">{current.name}</h2>
             <p className="text-xs text-ink-500 mb-4">{current.site_name || ''}</p>
 
             <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 mb-3">
-              <div className="font-semibold mb-1">💡 Huong dan</div>
+              <div className="font-semibold mb-1">{t('clientSidebar.guideTitle')}</div>
               <ol className="list-decimal list-inside space-y-1">
-                <li>Click <strong>"✏️ Sua text"</strong> tren toolbar</li>
-                <li>Hover chu, click vao de sua</li>
-                <li>Click <strong>"✓ Luu"</strong> de save</li>
+                <li>{t('clientSidebar.guideStep1')} <strong>"{t('preview.editText')}"</strong> {t('clientSidebar.guideStep1End')}</li>
+                <li>{t('clientSidebar.guideStep2')}</li>
+                <li>{t('clientSidebar.guideStep3')} <strong>"{t('preview.save')}"</strong> {t('clientSidebar.guideStep3End')}</li>
               </ol>
             </div>
 
             <div className="p-3 rounded-lg bg-ink-50 border border-ink-200 text-xs text-ink-600">
-              <div className="font-semibold mb-1 text-ink-700">Quyen cua ban</div>
+              <div className="font-semibold mb-1 text-ink-700">{t('clientSidebar.permsTitle')}</div>
               <ul className="space-y-0.5">
-                <li>✓ Sua text (ten, gia, mo ta)</li>
-                <li>✓ Xem tat ca cac trang</li>
-                <li>✗ Khong the xoa hoac tao moi</li>
-                <li>✗ Khong dung duoc AI</li>
+                <li>{t('clientSidebar.perm1')}</li>
+                <li>{t('clientSidebar.perm2')}</li>
+                <li>{t('clientSidebar.perm3')}</li>
+                <li>{t('clientSidebar.perm4')}</li>
               </ul>
             </div>
 
             <div className="mt-auto pt-4 text-[10px] text-ink-400 text-center">
-              Lien he chu DaisanAI neu can sua phuc tap
+              {t('clientSidebar.contactOwner')}
             </div>
           </aside>
         )}

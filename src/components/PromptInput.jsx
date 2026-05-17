@@ -1,29 +1,47 @@
-// PromptInput v0.4 — examples cap nhat cho multi-page
+// PromptInput v0.4 — examples cap nhat cho multi-page, v0.11 i18n
 import { useState, useEffect, useRef } from 'react'
+import { useT, useLanguage } from '../hooks/useLanguage'
 
-const EXAMPLES_NEW = [
+const EXAMPLES_NEW_VI = [
   'Website quan ca phe — co Home, Menu, Lien he',
   'Website shop thoi trang nu — Home, San pham, Gioi thieu, Lien he',
   'Website dich vu sua xe may — Trang chu, Bang gia, Lien he',
   'Website spa massage — Home, Dich vu, Gallery, Dat lich'
 ]
+const EXAMPLES_NEW_EN = [
+  'Coffee shop website with Home, Menu, Contact',
+  'Fashion boutique — Home, Products, About, Contact',
+  'Motorbike repair service — Home, Pricing, Contact',
+  'Spa & massage — Home, Services, Gallery, Book online'
+]
 
-const EXAMPLES_ITERATE = [
+const EXAMPLES_ITERATE_VI = [
   'Them trang San pham vao website',
   'Doi mau chu dao tat ca page sang xanh la',
   'Sua so dien thoai trong trang Lien he thanh 0901234567',
   'Them animation hover cho menu navigation',
   'Xoa trang Gioi thieu'
 ]
+const EXAMPLES_ITERATE_EN = [
+  'Add a Products page to the website',
+  'Change the primary color to green across all pages',
+  'Update the phone number on the Contact page to 0901234567',
+  'Add hover animation to navigation menu',
+  'Remove the About page'
+]
 
 export default function PromptInput({
   onSubmit, isStreaming, streamMode, currentProjectId, currentProjectName
 }) {
+  const t = useT()
+  const { lang } = useLanguage()
   const [text, setText] = useState('')
   const textareaRef = useRef(null)
 
   const isIterate = !!currentProjectId
-  const examples = isIterate ? EXAMPLES_ITERATE : EXAMPLES_NEW
+  const examples = isIterate
+    ? (lang === 'en' ? EXAMPLES_ITERATE_EN : EXAMPLES_ITERATE_VI)
+    : (lang === 'en' ? EXAMPLES_NEW_EN : EXAMPLES_NEW_VI)
 
   useEffect(() => { setText('') }, [currentProjectId])
   useEffect(() => { if (!isStreaming) textareaRef.current?.focus() }, [isStreaming, currentProjectId])
@@ -42,7 +60,7 @@ export default function PromptInput({
           <div className="w-1.5 h-1.5 rounded-full bg-brand-500"></div>
           <div className="flex-1 min-w-0">
             <div className="text-[10px] font-medium text-brand-700 uppercase tracking-wider">
-              Dang tinh chinh
+              {t('prompt.currentProject')}
             </div>
             <div className="text-xs text-brand-900 truncate font-medium">
               {currentProjectName}
@@ -52,7 +70,7 @@ export default function PromptInput({
       )}
 
       <label className="text-[10px] font-semibold text-ink-500 uppercase tracking-wider">
-        {isIterate ? 'Yeu cau thay doi' : 'Mo ta website ban muon'}
+        {isIterate ? t('prompt.labelIterate') : t('prompt.labelNew')}
       </label>
 
       <div className="mt-1.5 relative">
@@ -63,10 +81,7 @@ export default function PromptInput({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
           }}
-          placeholder={isIterate
-            ? 'VD: Them trang san pham, doi mau xanh la, them form lien he...'
-            : 'VD: Website quan pho voi trang chu, menu, gioi thieu va lien he...'
-          }
+          placeholder={isIterate ? t('prompt.placeholderIterate') : t('prompt.placeholderNew')}
           rows={4}
           className="w-full px-3 py-2.5 rounded-lg border border-ink-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 outline-none text-sm resize-none placeholder:text-ink-400 transition"
           disabled={isStreaming}
@@ -75,7 +90,7 @@ export default function PromptInput({
 
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="text-[10px] text-ink-400">
-          <kbd className="px-1.5 py-0.5 rounded bg-ink-100 text-ink-600 text-[10px] font-mono">Ctrl+Enter</kbd>
+          <kbd className="px-1.5 py-0.5 rounded bg-ink-100 text-ink-600 text-[10px] font-mono">{t('prompt.hint')}</kbd>
         </span>
         <button
           onClick={submit}
@@ -85,17 +100,17 @@ export default function PromptInput({
           {isStreaming ? (
             <span className="flex items-center gap-2">
               <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-              {streamMode === 'iterate' ? 'Dang sua...' : 'Dang tao...'}
+              {t('prompt.submitting')}
             </span>
           ) : (
-            isIterate ? '↻ Cap nhat' : '+ Tao website'
+            isIterate ? t('prompt.submitIterate') : t('prompt.submitNew')
           )}
         </button>
       </div>
 
       <div className="mt-3">
         <p className="text-[10px] font-semibold text-ink-500 uppercase tracking-wider mb-1.5">
-          Goi y nhanh
+          {t('prompt.suggestionsTitle')}
         </p>
         <div className="space-y-0.5">
           {examples.map((ex, i) => (

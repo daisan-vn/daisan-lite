@@ -7,8 +7,10 @@
 
 import { useState } from 'react'
 import { apiPost, apiDelete } from '../lib/api'
+import { useT } from '../hooks/useLanguage'
 
 export default function InviteClientModal({ project, onClose, showToast, onUpdate }) {
+  const t = useT()
   const [email, setEmail] = useState(project?.client_email || '')
   const [inviteUrl, setInviteUrl] = useState('')
   const [loading, setLoading] = useState(false)
@@ -20,34 +22,34 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
   async function handleGenerate(e) {
     e?.preventDefault()
     if (!email.includes('@')) {
-      showToast('Email khong hop le', 'error')
+      showToast(t('common.error'), 'error')
       return
     }
     setLoading(true)
     try {
       const result = await apiPost(`/api/projects/${project.id}/invite-client`, { email })
       setInviteUrl(result.inviteUrl)
-      showToast('✓ Da tao link moi. Copy va gui cho khach hang.', 'success')
+      showToast(t('invite.createSuccess'), 'success')
       onUpdate?.()
     } catch (err) {
-      showToast('Loi: ' + err.message, 'error')
+      showToast(t('common.error') + ': ' + err.message, 'error')
     } finally {
       setLoading(false)
     }
   }
 
   async function handleRevoke() {
-    if (!confirm('Huy quyen edit cua khach hang? Ho se khong vao duoc nua.')) return
+    if (!confirm(t('invite.revokeConfirm'))) return
     setRevoking(true)
     try {
       await apiDelete(`/api/projects/${project.id}/client`)
-      showToast('Da huy quyen edit cua khach', 'success')
+      showToast(t('invite.revokeSuccess'), 'success')
       setInviteUrl('')
       setEmail('')
       onUpdate?.()
       onClose()
     } catch (err) {
-      showToast('Loi: ' + err.message, 'error')
+      showToast(t('common.error') + ': ' + err.message, 'error')
     } finally {
       setRevoking(false)
     }
@@ -55,11 +57,11 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
 
   function handleCopy() {
     navigator.clipboard.writeText(inviteUrl)
-    showToast('✓ Da copy link', 'success')
+    showToast(t('common.copied'), 'success')
   }
 
   function handleShareZalo() {
-    const text = `Chao ban! Day la link de chinh sua website "${project.name}" cua ban:\n\n${inviteUrl}\n\nClick vao link, nhap email ${email}, nhan link dang nhap qua email roi bat dau sua thong tin.`
+    const text = `Hi! Edit your website "${project.name}":\n\n${inviteUrl}\n\nClick → sign in with ${email} → start editing.`
     const zaloUrl = `https://zalo.me/share/url?url=${encodeURIComponent(inviteUrl)}&text=${encodeURIComponent(text)}`
     window.open(zaloUrl, '_blank')
   }
@@ -72,9 +74,9 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
       >
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h2 className="text-lg font-bold text-ink-900">👥 Moi khach hang edit</h2>
+            <h2 className="text-lg font-bold text-ink-900">{t('invite.title')}</h2>
             <p className="text-sm text-ink-500 mt-1">
-              Khach hang co the dang nhap va sua text, gia, thong tin lien he
+              {t('invite.subtitle')}
             </p>
           </div>
           <button onClick={onClose} className="text-ink-400 hover:text-ink-700 text-2xl leading-none">×</button>
@@ -86,10 +88,10 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
             <div className="flex items-start gap-2">
               <span className="text-green-600">✓</span>
               <div className="flex-1 text-sm">
-                <div className="font-semibold text-green-900">Khach da accept</div>
+                <div className="font-semibold text-green-900">{t('invite.acceptedTitle')}</div>
                 <div className="text-green-700">{project.client_email}</div>
                 <div className="text-xs text-green-600 mt-1">
-                  Tu: {new Date(project.client_accepted_at).toLocaleDateString('vi-VN')}
+                  {t('invite.acceptedSince')} {new Date(project.client_accepted_at).toLocaleDateString()}
                 </div>
               </div>
               <button
@@ -97,7 +99,7 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
                 disabled={revoking}
                 className="text-xs px-2 py-1 rounded bg-white border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
-                {revoking ? '...' : 'Huy quyen'}
+                {revoking ? '...' : t('invite.revokeButton')}
               </button>
             </div>
           </div>
@@ -105,9 +107,9 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
 
         {hasPendingInvite && !hasClient && (
           <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm">
-            <div className="font-semibold text-amber-900">⏳ Da gui invite — cho khach accept</div>
+            <div className="font-semibold text-amber-900">{t('invite.pendingTitle')}</div>
             <div className="text-amber-700 mt-1">{project.client_email}</div>
-            <div className="text-xs text-amber-600 mt-1">Het han: {new Date(project.client_invite_expires_at).toLocaleDateString('vi-VN')}</div>
+            <div className="text-xs text-amber-600 mt-1">{t('invite.pendingExpires')} {new Date(project.client_invite_expires_at).toLocaleDateString()}</div>
           </div>
         )}
 
@@ -115,25 +117,25 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
         {!hasClient && (
           <form onSubmit={handleGenerate}>
             <label className="block text-xs uppercase tracking-wide text-ink-500 font-semibold mb-2">
-              Email khach hang
+              {t('invite.emailLabel')}
             </label>
             <input
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="vd: chuquan@cafeannien.vn"
+              placeholder={t('invite.emailPlaceholder')}
               required
               className="w-full px-3 py-2 rounded-lg border border-ink-300 focus:border-brand-500 focus:outline-none text-sm"
             />
             <p className="text-xs text-ink-500 mt-2">
-              Khach se nhan link → dang nhap bang chinh email nay → tu sua web cua ho
+              {t('invite.emailHint')}
             </p>
             <button
               type="submit"
               disabled={loading || !email.includes('@')}
               className="mt-3 w-full px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold disabled:opacity-50 transition"
             >
-              {loading ? 'Dang tao link...' : (hasPendingInvite ? 'Tao link MOI (huy link cu)' : '📩 Tao link moi')}
+              {loading ? t('invite.creating') : (hasPendingInvite ? t('invite.createButtonReinvite') : t('invite.createButton'))}
             </button>
           </form>
         )}
@@ -142,7 +144,7 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
         {inviteUrl && (
           <div className="mt-5 pt-5 border-t border-ink-200">
             <label className="block text-xs uppercase tracking-wide text-ink-500 font-semibold mb-2">
-              Link moi (gui cho khach)
+              {t('invite.linkLabel')}
             </label>
             <div className="flex gap-2">
               <input
@@ -156,7 +158,7 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
                 onClick={handleCopy}
                 className="px-3 py-2 rounded-lg bg-ink-100 hover:bg-ink-200 text-sm font-medium whitespace-nowrap"
               >
-                📋 Copy
+                {t('invite.copyButton')}
               </button>
             </div>
 
@@ -165,22 +167,22 @@ export default function InviteClientModal({ project, onClose, showToast, onUpdat
                 onClick={handleShareZalo}
                 className="px-3 py-2 rounded-lg bg-[#0068FF] hover:opacity-90 text-white text-sm font-medium"
               >
-                💬 Gui qua Zalo
+                {t('invite.zaloButton')}
               </button>
               <a
-                href={`mailto:${email}?subject=Link%20edit%20website&body=${encodeURIComponent(`Day la link edit web "${project.name}":\n\n${inviteUrl}\n\nClick vao → dang nhap voi email ${email} → bat dau sua thong tin.`)}`}
+                href={`mailto:${email}?subject=Edit%20your%20website&body=${encodeURIComponent(`Hi, here is your edit link for "${project.name}":\n\n${inviteUrl}\n\nClick → sign in with ${email} → start editing.`)}`}
                 className="px-3 py-2 rounded-lg bg-ink-100 hover:bg-ink-200 text-sm font-medium text-center"
               >
-                ✉️ Gui qua Email
+                {t('invite.emailButton')}
               </a>
             </div>
 
             <div className="mt-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
-              <div className="font-semibold mb-1">⚠️ Luu y:</div>
+              <div className="font-semibold mb-1">{t('invite.noteTitle')}</div>
               <ul className="list-disc list-inside space-y-0.5">
-                <li>Link het han sau 30 ngay</li>
-                <li>Khach dang nhap dung email <strong>{email}</strong></li>
-                <li>Khach chi sua duoc text — khong xoa, khong AI, khong billing</li>
+                <li>{t('invite.noteExpire')}</li>
+                <li>{t('invite.noteEmail')} <strong>{email}</strong></li>
+                <li>{t('invite.notePermission')}</li>
               </ul>
             </div>
           </div>
