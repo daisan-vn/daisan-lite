@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/site/:path*",
+      "destination": "https://daisan-lite.onrender.com/site/:path*"
+    }
+  ]
+}
