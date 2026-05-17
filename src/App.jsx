@@ -10,6 +10,7 @@
 // ========================================================================
 
 import { useState, useEffect, useCallback } from 'react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import PromptInput from './components/PromptInput'
 import ProjectList from './components/ProjectList'
 import Preview from './components/Preview'
@@ -294,6 +295,7 @@ function MainApp({ user, onSignOut }) {
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} />}
+      <SpeedInsights />
     </div>
   )
 }
