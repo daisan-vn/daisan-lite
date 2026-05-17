@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from 'react'
 import TemplatesGrid from './TemplatesGrid'
 import DomainSettings from './DomainSettings'
 import { apiPost } from '../lib/api'
+import { uploadProjectImage, resizeImage } from '../lib/imageUpload'
 import { useT } from '../hooks/useLanguage'
 
 export default function Preview({
@@ -27,6 +28,9 @@ export default function Preview({
   const iframeRef = useRef(null)
   const codeRef = useRef(null)
   const publishRef = useRef(null)
+  const fileInputRef = useRef(null)
+  // v0.13: image upload state — track id img dang upload de gui src moi ve iframe
+  const pendingImgIdRef = useRef(null)
 
   useEffect(() => { if (isStreaming) setMode('code') }, [isStreaming])
   useEffect(() => {
@@ -63,7 +67,10 @@ export default function Preview({
       }
       // v0.9 edit mode events
       if (d.type === 'daisan:editModeReady') {
-        showToast?.(`✏️ Edit mode bat: ${d.editableCount} text co the sua`, 'info')
+        const msg = d.imageCount > 0
+          ? `✏️ Edit mode: ${d.editableCount} text + ${d.imageCount} anh co the sua`
+          : `✏️ Edit mode bat: ${d.editableCount} text co the sua`
+        showToast?.(msg, 'info')
       }
       if (d.type === 'daisan:dirty') {
         setEditDirty(true)
@@ -71,11 +78,45 @@ export default function Preview({
       if (d.type === 'daisan:cleanHtml') {
         saveCleanHtmlToServer(d.html)
       }
+      // v0.13: user click <img> trong edit mode → mo file picker
+      if (d.type === 'daisan:imageClick') {
+        pendingImgIdRef.current = d.id
+        fileInputRef.current?.click()
+      }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current, currentPath])
+
+  // v0.13: handle file selected → resize → upload → tell iframe to swap src
+  async function handleImageFileSelected(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''   // reset de chon lai cung 1 file duoc
+    if (!file) return
+    const imgId = pendingImgIdRef.current
+    pendingImgIdRef.current = null
+    if (!imgId || !current?.id) return
+
+    // Bao iframe set loading state cho img
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'daisan:setImageUploading', id: imgId, on: true }, '*'
+    )
+
+    try {
+      const resized = await resizeImage(file, 1600, 0.85)
+      const { publicUrl } = await uploadProjectImage(resized, current.id)
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'daisan:replaceImageSrc', id: imgId, src: publicUrl }, '*'
+      )
+      showToast?.('✓ Da upload anh', 'success')
+    } catch (err) {
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'daisan:setImageUploading', id: imgId, on: false }, '*'
+      )
+      showToast?.('Loi upload: ' + err.message, 'error')
+    }
+  }
 
   // v0.9: Toggle edit mode → send message to iframe
   function toggleEditMode() {
@@ -512,6 +553,15 @@ export default function Preview({
           showToast={showToast}
         />
       )}
+
+      {/* v0.13: Hidden file input cho image upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        onChange={handleImageFileSelected}
+        className="hidden"
+      />
     </>
   )
 }

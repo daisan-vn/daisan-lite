@@ -295,9 +295,38 @@ function injectNavScript(html) {
       '  outline-offset: 2px !important;' +
       '  background: rgba(59,92,245,0.08) !important;' +
       '}' +
+      // v0.13: image upload click affordance
+      '.daisan-edit-mode img[data-daisan-img-id] {' +
+      '  cursor: pointer !important;' +
+      '  transition: outline 0.15s !important;' +
+      '}' +
+      '.daisan-edit-mode img[data-daisan-img-id]:hover {' +
+      '  outline: 3px dashed #10b981 !important;' +
+      '  outline-offset: 2px !important;' +
+      '}' +
+      '.daisan-edit-mode img[data-daisan-img-uploading] {' +
+      '  opacity: 0.5 !important; filter: blur(1px) !important;' +
+      '}' +
       '.daisan-edit-mode a { pointer-events: auto !important; }' +
       '.daisan-edit-mode * { user-select: text !important; }';
     document.head.appendChild(s);
+  }
+
+  // v0.13: handle image click in edit mode
+  function onImgClick(e) {
+    if (!document.body.classList.contains('daisan-edit-mode')) return;
+    var img = e.target;
+    if (img.tagName !== 'IMG') return;
+    var id = img.getAttribute('data-daisan-img-id');
+    if (!id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    window.parent.postMessage({
+      type: 'daisan:imageClick',
+      id: id,
+      currentSrc: img.getAttribute('src') || '',
+      alt: img.getAttribute('alt') || ''
+    }, '*');
   }
 
   function enableEditMode() {
@@ -320,7 +349,22 @@ function injectNavScript(html) {
         }
       });
     });
-    window.parent.postMessage({ type: 'daisan:editModeReady', editableCount: document.querySelectorAll('[data-daisan-editable]').length }, '*');
+
+    // v0.13: gan id cho moi <img> trong body de parent identify duoc khi user click
+    var imgs = document.querySelectorAll('body img');
+    var imgCount = 0;
+    imgs.forEach(function(img, i) {
+      if (img.closest('head, script, style')) return;
+      img.setAttribute('data-daisan-img-id', 'img-' + i);
+      img.addEventListener('click', onImgClick);
+      imgCount++;
+    });
+
+    window.parent.postMessage({
+      type: 'daisan:editModeReady',
+      editableCount: document.querySelectorAll('[data-daisan-editable]').length,
+      imageCount: imgCount
+    }, '*');
   }
 
   function disableEditMode() {
@@ -331,6 +375,29 @@ function injectNavScript(html) {
       el.removeAttribute('data-daisan-editable');
       el.removeAttribute('data-daisan-original');
     });
+    // v0.13: gỡ image listeners + data attrs
+    var imgs = document.querySelectorAll('[data-daisan-img-id]');
+    imgs.forEach(function(img) {
+      img.removeEventListener('click', onImgClick);
+      img.removeAttribute('data-daisan-img-id');
+      img.removeAttribute('data-daisan-img-uploading');
+    });
+  }
+
+  // v0.13: parent goi de thay src cua 1 img sau khi upload xong
+  function replaceImageSrc(id, newSrc) {
+    var img = document.querySelector('img[data-daisan-img-id="' + id + '"]');
+    if (!img) return;
+    img.removeAttribute('data-daisan-img-uploading');
+    img.setAttribute('src', newSrc);
+    notifyDirty();
+  }
+
+  function setImageUploading(id, on) {
+    var img = document.querySelector('img[data-daisan-img-id="' + id + '"]');
+    if (!img) return;
+    if (on) img.setAttribute('data-daisan-img-uploading', 'true');
+    else img.removeAttribute('data-daisan-img-uploading');
   }
 
   var dirtyTimer = null;
@@ -353,6 +420,12 @@ function injectNavScript(html) {
       editables[j].removeAttribute('data-daisan-editable');
       editables[j].removeAttribute('data-daisan-original');
     }
+    // v0.13: strip image edit attrs
+    var imgs = root.querySelectorAll('[data-daisan-img-id], [data-daisan-img-uploading]');
+    for (var k = 0; k < imgs.length; k++) {
+      imgs[k].removeAttribute('data-daisan-img-id');
+      imgs[k].removeAttribute('data-daisan-img-uploading');
+    }
     return '<!DOCTYPE html>\\n' + root.outerHTML;
   }
 
@@ -366,6 +439,13 @@ function injectNavScript(html) {
         type: 'daisan:cleanHtml',
         html: getCleanHtml()
       }, '*');
+    }
+    // v0.13: parent gui src moi cho img sau khi upload
+    if (d.type === 'daisan:replaceImageSrc' && d.id && d.src) {
+      replaceImageSrc(d.id, d.src);
+    }
+    if (d.type === 'daisan:setImageUploading' && d.id) {
+      setImageUploading(d.id, !!d.on);
     }
   });
 })();
