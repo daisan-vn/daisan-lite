@@ -10,7 +10,8 @@ import { apiPost } from '../lib/api'
 export default function Preview({
   current, streamText, isStreaming, streamMode,
   onPublish, onUnpublish, publishLoading,
-  onTemplateCloned, showToast, onProjectUpdate
+  onTemplateCloned, showToast, onProjectUpdate,
+  isClient = false   // v0.10: client mode flag
 }) {
   const [mode, setMode] = useState('preview')
   const [viewport, setViewport] = useState('desktop')
@@ -139,8 +140,21 @@ export default function Preview({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // ─── Empty state → TemplatesGrid ─────────────────────────────────────
+  // ─── Empty state → TemplatesGrid (owner) or message (client) ────────
   if (!current && !isStreaming) {
+    if (isClient) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center max-w-sm">
+            <div className="text-5xl mb-3">📋</div>
+            <h2 className="text-lg font-bold text-ink-900 mb-2">Chua co project nao</h2>
+            <p className="text-sm text-ink-600">
+              Hay yeu cau chu DaisanAI gui link moi de bat dau edit web cua ban.
+            </p>
+          </div>
+        </div>
+      )
+    }
     return (
       <TemplatesGrid
         onCloned={onTemplateCloned}
@@ -297,7 +311,8 @@ export default function Preview({
               Tai
             </button>
 
-            {/* ─── PUBLISH BUTTON / POPOVER ───────────────────────────── */}
+            {/* ─── PUBLISH BUTTON / POPOVER (owner only — v0.10) ────── */}
+            {!isClient && (
             <div className="relative" ref={publishRef}>
               <button
                 onClick={handlePublishClick}
@@ -421,6 +436,7 @@ export default function Preview({
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
       </div>

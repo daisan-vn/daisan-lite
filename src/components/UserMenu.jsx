@@ -4,7 +4,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 
-export default function UserMenu({ user, onSignOut, onShowBilling }) {
+export default function UserMenu({ user, onSignOut, onShowBilling, hideBilling = false }) {
   const [open, setOpen] = useState(false)
   const menuRef = useRef(null)
 
@@ -65,6 +65,7 @@ export default function UserMenu({ user, onSignOut, onShowBilling }) {
             </div>
           </div>
 
+          {!hideBilling && (
           <button
             onClick={() => { setOpen(false); onShowBilling?.() }}
             className="w-full text-left px-3 py-2.5 text-sm hover:bg-ink-50 transition flex items-center gap-2 text-ink-700 border-b border-ink-100"
@@ -75,6 +76,7 @@ export default function UserMenu({ user, onSignOut, onShowBilling }) {
             <span>Nang cap goi</span>
             <span className="ml-auto text-[10px] text-brand-600 font-semibold">PRO</span>
           </button>
+          )}
 
           <button
             onClick={() => {
