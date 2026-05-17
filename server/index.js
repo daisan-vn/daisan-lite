@@ -14,6 +14,7 @@ import express from 'express'
 import cors from 'cors'
 import crypto from 'crypto'
 import dns from 'dns/promises'
+import * as cheerio from 'cheerio'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import * as vnpay from './lib/vnpay.js'
@@ -138,6 +139,58 @@ async function generateUniqueSlug(name, attempts = 0) {
     .from('projects').select('id').eq('slug', slug).maybeSingle()
   if (data) return generateUniqueSlug(name, attempts + 1)   // try again
   return slug
+}
+
+// ─── HTML SANITIZER (v0.10.1 — chong XSS qua /save-edits) ────────────────
+// User (owner hoac client) gui HTML qua inline-edit → server phai sanitize
+// truoc khi luu DB va serve public. Allowlist script CDN cho AI-generated content.
+const ALLOWED_SCRIPT_SRC_PREFIXES = [
+  'https://cdn.tailwindcss.com',
+  'https://cdn.jsdelivr.net/',
+  'https://unpkg.com/',
+  'https://fonts.googleapis.com/'
+]
+
+const URL_ATTR_NAMES = new Set([
+  'href', 'src', 'action', 'formaction', 'xlink:href', 'srcset', 'background', 'poster'
+])
+const DANGEROUS_SCHEME_RE = /^\s*(javascript|vbscript|data\s*:\s*text\/html)/i
+
+function sanitizeUserHtml(html) {
+  if (!html || typeof html !== 'string') return html
+  const $ = cheerio.load(html, { decodeEntities: false })
+
+  // 1. Xoa cac tag co the nhung noi dung tu y / redirect
+  $('iframe, object, embed, base, applet, frame, frameset').remove()
+  $('meta[http-equiv]').remove()
+  $('link[rel="import"]').remove()
+
+  // 2. Lam sach <script>: chi giu src trong allowlist, bo inline, bo moi attr khac
+  $('script').each((_, el) => {
+    const $el = $(el)
+    const src = ($el.attr('src') || '').trim()
+    const inline = ($el.html() || '').trim()
+    const allowed = src && !inline &&
+      ALLOWED_SCRIPT_SRC_PREFIXES.some(p => src.startsWith(p))
+    if (!allowed) { $el.remove(); return }
+    el.attribs = { src }
+  })
+
+  // 3. Strip on* handlers, javascript:/vbscript: URL, srcdoc, nonce trong moi tag
+  $('*').each((_, el) => {
+    if (!el.attribs) return
+    for (const name of Object.keys(el.attribs)) {
+      const lower = name.toLowerCase()
+      if (lower.startsWith('on')) { delete el.attribs[name]; continue }
+      if (lower === 'srcdoc' || lower === 'nonce') { delete el.attribs[name]; continue }
+      if (URL_ATTR_NAMES.has(lower) && DANGEROUS_SCHEME_RE.test(el.attribs[name] || '')) {
+        delete el.attribs[name]
+      }
+    }
+  })
+
+  // Cheerio drop <!DOCTYPE> trong output, prepend lai cho dung HTML5
+  return '<!DOCTYPE html>\n' + $.root().html()
 }
 
 // ─── SMART NAV SCRIPT ────────────────────────────────────────────────────
@@ -681,8 +734,16 @@ app.post('/api/projects/:id/save-edits', requireAuth, async (req, res) => {
       return res.status(404).json({ error: `Page "${filename}" khong ton tai trong project` })
     }
 
+    // Sanitize HTML — chong XSS qua client invite (v0.10.1)
+    // Strip <script> inline, on* handlers, javascript: URL, iframe/object/embed.
+    // Allowlist CDN script (Tailwind, Google Fonts) de giu AI-generated content.
+    const safeHtml = sanitizeUserHtml(html)
+    if (!safeHtml || safeHtml.length < 50) {
+      return res.status(400).json({ error: 'HTML sau khi loc qua ngan hoac khong hop le' })
+    }
+
     // Re-inject nav script (vi frontend gui HTML clean, server tu inject lai)
-    pages[filename] = injectNavScript(html)
+    pages[filename] = injectNavScript(safeHtml)
 
     // Update DB (chi update pages, khong filter user_id vi da check role)
     const updates = { pages }
